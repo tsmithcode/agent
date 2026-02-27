@@ -9,6 +9,6 @@
 │ mode=single_step | max_tokens=700 | max_steps=20 | max_output_chars=3000 │
 ╰──────────────────────────────────────────────────────────────────────────╯
 ╭───────────────────────────────────────── Insight Answer ─────────────────────────────────────────╮
-│ I am CAD Guardian. I support run, ask, doctor, and snapshot-tests. My behavior is controlled by  │
-│ policy.json limits and allow/deny rules.                                                         │
+│ I am CAD Guardian. I support run, ask, doctor, inspect, and dev snapshot tests. My behavior is   │
+│ controlled by policy.json limits and allow/deny rules.                                           │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯

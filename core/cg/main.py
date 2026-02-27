@@ -26,7 +26,12 @@ from .paths import Paths
 from .policy import Policy
 
 app = typer.Typer(add_completion=False)
+inspect_app = typer.Typer(help="Inspect project structure, workspace files, and output folders.")
+dev_app = typer.Typer(help="Developer-only maintenance and QA commands.")
 console = Console()
+
+app.add_typer(inspect_app, name="inspect")
+app.add_typer(dev_app, name="dev")
 
 
 def _print_cli_notice(
@@ -103,7 +108,25 @@ def _print_full_help() -> None:
         "Run onboarding and environment diagnostics.",
     )
     table.add_row(
-        "cg snapshot-tests",
+        "cg inspect structure",
+        "(none)",
+        "--depth 4",
+        "Show solution structure (tree from ~).",
+    )
+    table.add_row(
+        "cg inspect workspace",
+        "(none)",
+        "--depth (optional)",
+        "Show workspace files.",
+    )
+    table.add_row(
+        "cg inspect outputs",
+        "(none)",
+        "--depth (optional)",
+        "Show output folders (reports, logs, artifacts).",
+    )
+    table.add_row(
+        "cg dev snapshot-tests",
         "(none)",
         "(none)",
         "Run CLI snapshot tests, save report to workspace, open/preview report.",
@@ -123,7 +146,10 @@ def _print_full_help() -> None:
             "  cg run \"Run tests\" --full\n"
             "  cg ask \"What does this app do?\" --context\n"
             "  cg doctor\n"
-            "  cg snapshot-tests",
+            "  cg inspect structure\n"
+            "  cg inspect workspace\n"
+            "  cg inspect outputs\n"
+            "  cg dev snapshot-tests",
             title="Quick Examples",
             expand=False,
         )
@@ -146,6 +172,73 @@ def _open_for_review(path: Path) -> bool:
         except Exception:
             continue
     return False
+
+
+def _python_tree_output(root: Path, *, max_depth: Optional[int]) -> str:
+    root = root.resolve()
+    if not root.exists():
+        return f"{root}\n(missing)"
+
+    lines: list[str] = [str(root)]
+
+    def _walk(cur: Path, prefix: str, depth: int) -> None:
+        if max_depth is not None and depth >= max_depth:
+            return
+        try:
+            entries = sorted(cur.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+        except Exception:
+            lines.append(f"{prefix}(unreadable)")
+            return
+        for i, entry in enumerate(entries):
+            is_last = i == (len(entries) - 1)
+            branch = "└── " if is_last else "├── "
+            suffix = "/" if entry.is_dir() else ""
+            lines.append(f"{prefix}{branch}{entry.name}{suffix}")
+            if entry.is_dir():
+                next_prefix = f"{prefix}{'    ' if is_last else '│   '}"
+                _walk(entry, next_prefix, depth + 1)
+
+    _walk(root, "", 0)
+    return "\n".join(lines)
+
+
+def _tree_output(root: Path, *, max_depth: Optional[int]) -> str:
+    tree_bin = shutil.which("tree")
+    if tree_bin:
+        cmd = [tree_bin, "-a", "-I", ".git|venv|__pycache__|.pytest_cache"]
+        if max_depth is not None and max_depth > 0:
+            cmd.extend(["-L", str(max_depth)])
+        cmd.append(str(root.resolve()))
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+            out = (proc.stdout or proc.stderr or "").strip()
+            if out:
+                return out
+        except Exception:
+            pass
+    return _python_tree_output(root, max_depth=max_depth)
+
+
+def _print_tree_panel(*, title: str, root: Path, max_depth: Optional[int]) -> None:
+    console.print(Panel(Text(_tree_output(root, max_depth=max_depth)), title=title, expand=False))
+
+
+def _structure_once(depth: int) -> None:
+    paths = Paths.resolve()
+    _print_tree_panel(title=f"Solution Structure (~, depth={depth})", root=paths.home, max_depth=depth)
+
+
+def _workspace_once(depth: Optional[int]) -> None:
+    paths = Paths.resolve()
+    _print_tree_panel(title="Workspace Files", root=paths.workspace, max_depth=depth)
+
+
+def _outputs_once(depth: Optional[int]) -> None:
+    paths = Paths.resolve()
+    reports_dir = (paths.workspace / "reports").resolve()
+    _print_tree_panel(title="Outputs: Workspace Reports", root=reports_dir, max_depth=depth)
+    _print_tree_panel(title="Outputs: Host Logs", root=paths.logs_dir, max_depth=depth)
+    _print_tree_panel(title="Outputs: Host Artifacts", root=paths.artifacts_dir, max_depth=depth)
 
 
 def _cap_chars(s: str, max_chars: int, *, full_output: bool = False) -> str:
@@ -295,7 +388,7 @@ def _ask_capability_brief(policy: Policy) -> str:
     return (
         "Agent profile:\n"
         "- Product: CAD Guardian CLI\n"
-        "- Modes: run (execute), ask (read-only), doctor (diagnostics), snapshot-tests (UI QA)\n"
+        "- Modes: run, ask, doctor, inspect, dev (+ legacy aliases)\n"
         f"- Execution mode: {policy.execution_mode()} (max_actions_per_run={policy.max_actions_per_run()})\n"
         f"- Limits: max_completion_tokens={policy.max_completion_tokens()}, max_steps_per_plan={policy.max_steps_per_plan()}, "
         f"max_runtime_seconds={policy.max_runtime_seconds()}\n"
@@ -524,6 +617,7 @@ def _ask_once(question: str, *, full_output: bool = False, context: bool = False
 def _doctor_once() -> None:
     load_dotenv()
     rows: list[tuple[str, str, str]] = []
+    policy_path: Optional[Path] = None
 
     api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
     rows.append(("OPENAI_API_KEY", "PASS" if api_key else "WARN", "Set" if api_key else "Missing"))
@@ -545,6 +639,26 @@ def _doctor_once() -> None:
             rows.append(("Policy.load()", "FAIL", str(e)))
 
     if paths is not None:
+        tracked_paths: list[tuple[str, Path, bool]] = [
+            ("Path: home", paths.home, True),
+            ("Path: agent_root", paths.agent_root, True),
+            ("Path: workspace", paths.workspace, True),
+            ("Path: host_ai", paths.host_ai, True),
+            ("Path: memory_root", paths.memory_root, True),
+            ("Path: chroma_dir", paths.chroma_dir, True),
+            ("Path: logs_dir", paths.logs_dir, True),
+            ("Path: artifacts_dir", paths.artifacts_dir, True),
+        ]
+        if policy_path is not None:
+            tracked_paths.append(("Path: policy.json", policy_path, False))
+
+        for label, p, should_be_dir in tracked_paths:
+            exists = p.exists()
+            status = "PASS" if exists else "FAIL"
+            kind = "dir" if should_be_dir else "file"
+            details = f"{p} ({kind}, {'exists' if exists else 'missing'})"
+            rows.append((label, status, details))
+
         workspace_exists = paths.workspace.exists()
         rows.append(("Workspace path", "PASS" if workspace_exists else "FAIL", str(paths.workspace)))
         write_ok = os.access(paths.workspace, os.W_OK)
@@ -689,10 +803,34 @@ def doctor():
     _doctor_once()
 
 
-@app.command("snapshot-tests")
-def snapshot_tests():
+@dev_app.command("snapshot-tests")
+def dev_snapshot_tests():
     """Run CLI snapshot tests, save report in workspace, and open it."""
     _run_snapshot_tests()
+
+
+@inspect_app.command("structure")
+def inspect_structure(
+    depth: int = typer.Option(4, "--depth", min=1, max=10, help="Tree depth (default: 4)."),
+):
+    """Show solution structure from home path."""
+    _structure_once(depth)
+
+
+@inspect_app.command("workspace")
+def inspect_workspace(
+    depth: Optional[int] = typer.Option(None, "--depth", min=1, max=10, help="Optional tree depth limit."),
+):
+    """Show all files under workspace."""
+    _workspace_once(depth)
+
+
+@inspect_app.command("outputs")
+def inspect_outputs(
+    depth: Optional[int] = typer.Option(None, "--depth", min=1, max=10, help="Optional tree depth limit."),
+):
+    """Show output folders (reports, logs, artifacts)."""
+    _outputs_once(depth)
 
 
 def cli() -> None:

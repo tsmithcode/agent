@@ -96,7 +96,7 @@ class CliSnapshotTests(unittest.TestCase):
                     (),
                     {
                         "answer": (
-                            "I am CAD Guardian. I support run, ask, doctor, and snapshot-tests. "
+                            "I am CAD Guardian. I support run, ask, doctor, inspect, and dev snapshot tests. "
                             "My behavior is controlled by policy.json limits and allow/deny rules."
                         ),
                         "plan": [],

@@ -29,7 +29,8 @@ Then run:
 ```bash
 cg --help
 cg doctor
-cg snapshot-tests
+cg inspect structure
+cg dev snapshot-tests
 ```
 
 ## Quick Usage
@@ -38,7 +39,8 @@ cg snapshot-tests
 cg ask "What does this app do right now?"
 cg run "List project files"
 cg run "List project files" --full
-cg snapshot-tests
+cg inspect workspace
+cg dev snapshot-tests
 ```
 
 ## Marketplace Description (Ready Copy)

@@ -45,7 +45,8 @@ After install:
 ```bash
 cg --help
 cg doctor
-cg snapshot-tests
+cg inspect structure
+cg dev snapshot-tests
 ```
 
 ### Homebrew-ready note
@@ -91,7 +92,10 @@ cd /home/cg-ai/agent/core
 | `cg run "<prompt>" --full` | Same, but shows full answer/stdout/stderr | `cg run "Run tests" --full` |
 | `cg ask "<question>"` | Read-only chat about current source/workspace state | `cg ask "What does main.py do?"` |
 | `cg doctor` | Runs setup and environment diagnostics | `cg doctor` |
-| `cg snapshot-tests` | Runs UI snapshot tests, saves report in workspace, opens/fallback previews report | `cg snapshot-tests` |
+| `cg inspect structure` | Shows solution tree (default depth 4) | `cg inspect structure --depth 4` |
+| `cg inspect workspace` | Shows workspace tree | `cg inspect workspace` |
+| `cg inspect outputs` | Shows reports/logs/artifacts trees | `cg inspect outputs` |
+| `cg dev snapshot-tests` | Runs UI snapshot tests, saves report in workspace, opens/fallback previews report | `cg dev snapshot-tests` |
 | `cg --help` | Shows help screen | `cg --help` |
 
 > Note: in this setup you run through `./cg.sh`, which calls `python -m cg.main`.
@@ -106,7 +110,7 @@ cd /home/cg-ai/agent/core
 6. Execute safe actionable plan steps
 7. Save interaction to memory
 
-For `cg ask`, the app also builds a read-only runtime snapshot (file sample + key file previews) and sends it to the model for contextual answers.
+For `cg ask`, the app also builds a read-only runtime snapshot (file sample + git status) and sends it to the model for contextual answers.
 
 ## Safety Rules (Policy)
 
