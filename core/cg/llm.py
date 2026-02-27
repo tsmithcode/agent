@@ -91,8 +91,14 @@ Schema:
 
 BEHAVIOR RULES:
 - Read-only mode: do not propose execution steps.
-- Use the supplied source/workspace snapshot as ground truth.
+- Use supplied runtime/source/readme snapshot as primary ground truth.
+- Treat memory as secondary context only.
 - Be explicit when context is missing.
+- Answer in practical FAQ style when possible:
+  1) What it is
+  2) What user can do now
+  3) Limits/safety boundaries
+  4) Next best command(s)
 - Keep answer concise and practical.
 """
 

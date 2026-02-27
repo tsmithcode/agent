@@ -45,6 +45,7 @@ After install:
 ```bash
 cg --help
 cg doctor
+cg snapshot-tests
 ```
 
 ### Homebrew-ready note
@@ -90,6 +91,7 @@ cd /home/cg-ai/agent/core
 | `cg run "<prompt>" --full-output` | Same, but shows full answer/stdout/stderr | `cg run "Run tests" --full-output` |
 | `cg ask "<question>"` | Read-only chat about current source/workspace state | `cg ask "What does main.py do?"` |
 | `cg doctor` | Runs setup and environment diagnostics | `cg doctor` |
+| `cg snapshot-tests` | Runs UI snapshot tests, saves report in workspace, opens/fallback previews report | `cg snapshot-tests` |
 | `cg --help` | Shows help screen | `cg --help` |
 
 > Note: in this setup you run through `./cg.sh`, which calls `python -m cg.main`.

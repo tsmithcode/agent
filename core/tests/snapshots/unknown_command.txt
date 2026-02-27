@@ -1,0 +1,5 @@
+╭─────────────────── Unknown Command: bogus ───────────────────╮
+│  No such command 'bogus'.                                    │
+│   Help: Run cg --help to see available commands and options. │
+│    Example: cg run "summarize workspace"                     │
+╰──────────────────────────────────────────────────────────────╯

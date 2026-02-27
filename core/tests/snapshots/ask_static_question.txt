@@ -1,0 +1,14 @@
+╭────────────────────────── CAD Guardian Insight ──────────────────────────╮
+│ Question                                                                 │
+│ What can you tell me about yourself and your policies?                   │
+│                                                                          │
+│ Context                                                                  │
+│ memory_items=0 (secondary) | context_chars=9143                          │
+│                                                                          │
+│ Runtime                                                                  │
+│ mode=single_step | max_tokens=700 | max_steps=20 | max_output_chars=3000 │
+╰──────────────────────────────────────────────────────────────────────────╯
+╭───────────────────────────────────────── Insight Answer ─────────────────────────────────────────╮
+│ I am CAD Guardian. I support run, ask, doctor, and snapshot-tests. My behavior is controlled by  │
+│ policy.json limits and allow/deny rules.                                                         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
