@@ -20,7 +20,13 @@ class ExecResult:
 
 
 class PolicyViolation(Exception):
-    pass
+    def __init__(self, message: str, *, rule: str = ""):
+        super().__init__(message)
+        self.rule = (rule or "").strip()
+
+
+def _violation(message: str, *, rule: str) -> PolicyViolation:
+    return PolicyViolation(message, rule=rule)
 
 
 class Executor:
@@ -69,8 +75,9 @@ class Executor:
     def _enforce_write_size_limit(self, content: str) -> None:
         size = len(content.encode("utf-8"))
         if size > self.policy.max_file_write_bytes():
-            raise PolicyViolation(
-                f"Write exceeds max_file_write_bytes: {size} > {self.policy.max_file_write_bytes()}"
+            raise _violation(
+                f"Write exceeds max_file_write_bytes: {size} > {self.policy.max_file_write_bytes()}",
+                rule="execution_limits.max_file_write_bytes",
             )
 
     def _enforce_destructive_patterns(self, command: str) -> None:
@@ -78,7 +85,10 @@ class Executor:
         cmd_norm = " ".join(command.strip().split())
         for pat in deny_patterns:
             if cmd_norm == " ".join(str(pat).strip().split()):
-                raise PolicyViolation(f"Command matches denied destructive pattern: {pat}")
+                raise _violation(
+                    f"Command matches denied destructive pattern: {pat}",
+                    rule="destructive_command_controls.deny_patterns",
+                )
 
     def _resolve_cli_path(self, path_arg: str, cwd: Path) -> Path:
         p = Path(path_arg).expanduser()
@@ -96,7 +106,10 @@ class Executor:
 
         has_recursive = any(flag in parts for flag in ("-r", "-rf", "-fr", "--recursive"))
         if has_recursive and deny_recursive:
-            raise PolicyViolation("Recursive rm is denied by policy.")
+            raise _violation(
+                "Recursive rm is denied by policy.",
+                rule="destructive_command_controls.rm_rules.deny_recursive",
+            )
 
         if has_recursive and allow_recursive_roots:
             targets: list[Path] = []
@@ -117,7 +130,10 @@ class Executor:
                             allowed = True
                             break
                 if not allowed:
-                    raise PolicyViolation(f"Recursive rm target outside allowed roots: {target}")
+                    raise _violation(
+                        f"Recursive rm target outside allowed roots: {target}",
+                        rule="destructive_command_controls.rm_rules.allow_recursive_only_under",
+                    )
 
     def _enforce_git_controls(self, parts: list[str]) -> None:
         if not parts or parts[0] != "git":
@@ -129,11 +145,11 @@ class Executor:
         subcmd = parts[1] if len(parts) > 1 else ""
 
         if deny_push and subcmd == "push":
-            raise PolicyViolation("git push is denied by policy.")
+            raise _violation("git push is denied by policy.", rule="git_controls.deny_push")
         if deny_remote_add and subcmd == "remote" and len(parts) > 2 and parts[2] == "add":
-            raise PolicyViolation("git remote add is denied by policy.")
+            raise _violation("git remote add is denied by policy.", rule="git_controls.deny_remote_add")
         if deny_force and any(p == "--force" or p.startswith("-f") for p in parts[1:]):
-            raise PolicyViolation("Forced git operations are denied by policy.")
+            raise _violation("Forced git operations are denied by policy.", rule="git_controls.deny_force")
 
     def _enforce_network_controls(self, parts: list[str]) -> None:
         if not parts:
@@ -143,7 +159,7 @@ class Executor:
             return
 
         if not self.policy.allow_outbound_http():
-            raise PolicyViolation("Outbound HTTP is denied by policy.")
+            raise _violation("Outbound HTTP is denied by policy.", rule="network_controls.allow_outbound_http")
 
         allowed = set(self.policy.allow_domains())
         if not allowed:
@@ -153,16 +169,16 @@ class Executor:
         for u in urls:
             host = (urlparse(u).hostname or "").lower()
             if host not in allowed:
-                raise PolicyViolation(f"Domain not allowed by policy: {host}")
+                raise _violation(f"Domain not allowed by policy: {host}", rule="network_controls.allow_domains")
 
     def write_file(self, rel_path: str, content: str) -> Path:
         target = (self.workspace / rel_path).resolve()
 
         if self._is_denied_path(target):
-            raise PolicyViolation(f"Denied path: {target}")
+            raise _violation(f"Denied path: {target}", rule="denied_paths")
 
         if not self._is_allowed_write(target):
-            raise PolicyViolation(f"Write outside allowed roots: {target}")
+            raise _violation(f"Write outside allowed roots: {target}", rule="allowed_write_roots")
 
         self._enforce_write_size_limit(content)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -172,20 +188,20 @@ class Executor:
     def run(self, command: str, cwd: Optional[Path] = None, timeout_s: int = 60) -> ExecResult:
         parts = shlex.split(command)
         if not parts:
-            raise PolicyViolation("Empty command")
+            raise _violation("Empty command", rule="command_allowlist")
 
         exe = parts[0]
         if exe not in self.policy.command_allowlist:
-            raise PolicyViolation(f"Command not in allowlist: {exe}")
+            raise _violation(f"Command not in allowlist: {exe}", rule="command_allowlist")
         if exe in self.policy.command_denylist:
-            raise PolicyViolation(f"Command is explicitly denied by policy: {exe}")
+            raise _violation(f"Command is explicitly denied by policy: {exe}", rule="command_denylist")
 
         run_cwd = (cwd or self.workspace).resolve()
 
         if self._is_denied_path(run_cwd):
-            raise PolicyViolation(f"Denied cwd: {run_cwd}")
+            raise _violation(f"Denied cwd: {run_cwd}", rule="denied_paths")
         if not self._is_allowed_read(run_cwd):
-            raise PolicyViolation(f"CWD outside allowed read roots: {run_cwd}")
+            raise _violation(f"CWD outside allowed read roots: {run_cwd}", rule="allowed_read_roots")
 
         self._enforce_destructive_patterns(command)
         self._enforce_rm_rules(parts, run_cwd)

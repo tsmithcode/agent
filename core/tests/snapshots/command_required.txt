@@ -1,6 +1,5 @@
-╭─────────────────────── Command Required ───────────────────────╮
-│  Select a command to continue.                                 │
-│   Usage: cg run "<prompt>" [--full]  (or: cg ask "<question>") │
-│   Help: Run cg --help to see available commands and options.   │
-│    Example: cg run "summarize workspace"                       │
-╰────────────────────────────────────────────────────────────────╯
+------------ Command Required ------------
+WARNING Select a command to continue.
+Usage: cg run "<prompt>" [--full]  (or: cg ask "<question>")
+Help: Run cg --help to see available commands and options.
+Example: cg run "summarize workspace"

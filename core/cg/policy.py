@@ -23,6 +23,7 @@ class Policy:
     destructive_command_controls: Dict[str, Any]
     git_controls: Dict[str, Any]
     network_controls: Dict[str, Any]
+    routing_controls: Dict[str, Any]
     execution_limits: Dict[str, Any]
 
     @staticmethod
@@ -41,6 +42,7 @@ class Policy:
         destructive_command_controls = dict(data.get("destructive_command_controls") or {})
         git_controls = dict(data.get("git_controls") or {})
         network_controls = dict(data.get("network_controls") or {})
+        routing_controls = dict(data.get("routing_controls") or {})
         execution_limits = dict(data.get("execution_limits") or {})
 
         return Policy(
@@ -52,6 +54,7 @@ class Policy:
             destructive_command_controls=destructive_command_controls,
             git_controls=git_controls,
             network_controls=network_controls,
+            routing_controls=routing_controls,
             execution_limits=execution_limits,
         )
 
@@ -121,3 +124,20 @@ class Policy:
 
     def allow_domains(self) -> List[str]:
         return list(self.network_controls.get("allow_domains") or [])
+
+    def enable_deterministic_routing(self) -> bool:
+        return bool(self.routing_controls.get("enable_deterministic_routing", True))
+
+    def deterministic_confidence_threshold(self) -> float:
+        v = self.routing_controls.get("deterministic_confidence_threshold", 0.86)
+        try:
+            f = float(v)
+        except Exception:
+            return 0.86
+        return max(0.0, min(1.0, f))
+
+    def allowed_deterministic_handlers(self) -> List[str]:
+        return [str(x) for x in (self.routing_controls.get("allowed_handlers") or [])]
+
+    def force_llm_patterns(self) -> List[str]:
+        return [str(x) for x in (self.routing_controls.get("force_llm_patterns") or [])]

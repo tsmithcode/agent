@@ -16,6 +16,11 @@ CAD Guardian can:
 
 CAD Guardian does **not** run forever on its own. It runs when you ask it to run.
 
+Core product intent:
+
+- Ask over a live runtime snapshot of codebase/workspace
+- Run policy-controlled actions from one CLI
+
 ## Before You Start
 
 | Item | Why you need it |
@@ -46,7 +51,9 @@ After install:
 cg --help
 cg doctor
 cg inspect structure
-cg dev snapshot-tests
+cg dev snaps
+cg dev metrics --format json
+cg dev dashboard --live --refresh-seconds 5
 ```
 
 ### Homebrew-ready note
@@ -56,6 +63,27 @@ A formula template is included at:
 - `agent/packaging/homebrew/cad-guardian.rb`
 
 Replace `url` and `sha256` with your release artifact values before publishing a tap.
+
+### Marketplace manifest (ingestion-ready)
+
+Base manifest:
+
+- `agent/packaging/marketplace/app-manifest.json`
+
+Generated release manifests:
+
+- `agent/packaging/marketplace/dist/app-manifest.json`
+- `agent/packaging/marketplace/dist/app-manifest.release.json`
+
+Generate locally:
+
+```bash
+cd /home/cg-ai/agent
+python -m build
+python packaging/marketplace/build_release_manifest.py --release-ref "local-build"
+```
+
+CI release workflow generates and uploads these automatically on build/tag pipelines.
 
 ## Quick Start
 
@@ -92,13 +120,32 @@ cd /home/cg-ai/agent/core
 | `cg run "<prompt>" --full` | Same, but shows full answer/stdout/stderr | `cg run "Run tests" --full` |
 | `cg ask "<question>"` | Read-only chat about current source/workspace state | `cg ask "What does main.py do?"` |
 | `cg doctor` | Runs setup and environment diagnostics | `cg doctor` |
-| `cg inspect structure` | Shows solution tree (default depth 4) | `cg inspect structure --depth 4` |
+| `cg doctor --verbose` | Shows full path inventory and expanded diagnostics | `cg doctor --verbose` |
+| `cg inspect structure` | Shows solution tree (default depth 4) | `cg inspect structure -d 4` |
 | `cg inspect workspace` | Shows workspace tree | `cg inspect workspace` |
 | `cg inspect outputs` | Shows reports/logs/artifacts trees | `cg inspect outputs` |
-| `cg dev snapshot-tests` | Runs UI snapshot tests, saves report in workspace, opens/fallback previews report | `cg dev snapshot-tests` |
+| `cg dev snaps` | Runs UI snapshot tests, saves report in workspace, opens/fallback previews report | `cg dev snaps` |
+| `cg dev metrics` | Aggregates JSONL telemetry to BI-ready summary report (`json` or `csv`) | `cg dev metrics --format csv` |
+| `cg dev dashboard` | Launches live dashboard (telemetry, memory, workspace, policy, reports) | `cg dev dashboard --live` |
 | `cg --help` | Shows help screen | `cg --help` |
 
 > Note: in this setup you run through `./cg.sh`, which calls `python -m cg.main`.
+
+Routing quick note:
+
+- `cg run "show files"` routes to deterministic handler (no LLM)
+- `cg run "design architecture"` routes to LLM fallback
+
+### Dashboard behavior
+
+`cg dev dashboard` now includes:
+
+- Branded dark, high-contrast visuals
+- Locked charts (no zoom/pan) for stable review views
+- Larger chart label fonts for readability
+- Scrollable tables/data grids to reduce page bloat
+- Memory Health `Recent Memory Items` table
+- Responsive layout across desktop/tablet/mobile
 
 ## How CAD Guardian Works (Simple Flow)
 
@@ -110,7 +157,51 @@ cd /home/cg-ai/agent/core
 6. Execute safe actionable plan steps
 7. Save interaction to memory
 
-For `cg ask`, the app also builds a read-only runtime snapshot (file sample + git status) and sends it to the model for contextual answers.
+For `cg ask`, the app builds a read-only runtime snapshot (file sample + git status) and sends it to the model for contextual answers.
+
+`cg ask` is for understanding current state.
+`cg run` is for file/folder operations and batch workflows inside workspace.
+
+For `cg run`, routing is deterministic-first:
+
+1. If prompt is an obvious operational request, run native deterministic handler
+2. Otherwise route to LLM planning/execution flow
+
+Execution transparency:
+
+- CAD Guardian prints `Route Decision` (deterministic vs LLM) and `Answer Path` (`command`, `llm`, or `both`)
+
+Batch apply confirmation:
+
+- apply-style requests require explicit `confirm:yes` in the prompt
+- without `confirm:yes`, the plan is shown but execution is blocked
+
+Memory is tagged by kind to improve retrieval quality:
+
+- `preferences`
+- `user_profile`
+- `workflow_pattern`
+- `task_result`
+- `interaction`
+
+## Standard Batch Workflow
+
+Use this sequence for bulk file operations:
+
+1. Scan
+2. Propose (dry-run plan)
+3. Confirm
+4. Apply
+5. Log
+
+Example:
+
+- Download content into `workspace`
+- Scan filenames/metadata
+- Propose normalization plan
+- Wait for explicit user confirmation
+- Apply file/tag changes
+- Save structured report in `workspace/reports`
 
 ## Safety Rules (Policy)
 
@@ -130,6 +221,7 @@ Your policy file is at:
 | `destructive_command_controls` | Extra guard rails for destructive patterns and `rm` |
 | `git_controls` | Restricts risky git actions |
 | `network_controls` | Restricts outbound HTTP domains |
+| `routing_controls` | Controls deterministic-first routing behavior for `cg run` |
 | `execution_limits` | Cost and behavior limits (time, tokens, output, mode) |
 
 ## Execution Limits You Should Know
@@ -158,11 +250,15 @@ Your policy file is at:
 |---|---|
 | `agent/core/cg.sh` | Shell launcher |
 | `agent/core/cg/main.py` | CLI flow, rendering, orchestration |
+| `agent/core/cg/cli_ui.py` | CLI presentation layer (help, notices, route/answer panels) |
 | `agent/core/cg/llm.py` | LLM request/response contract |
 | `agent/core/cg/executor.py` | Policy enforcement for commands/writes |
 | `agent/core/cg/policy.py` | Policy parsing + typed accessors |
 | `agent/core/cg/memory.py` | Long-term memory store and retrieval |
 | `agent/core/cg/paths.py` | Path resolution and environment roots |
+| `agent/core/cg/inspect_ops.py` | Structure/workspace/output inspection utilities |
+| `agent/core/cg/doctor.py` | Diagnostic checks service used by `cg doctor` |
+| `agent/core/cg_utils/text.py` | Shared utility helpers (truncate/cap logic) |
 
 ### Data and config paths
 
@@ -171,7 +267,13 @@ Your policy file is at:
 | `agent/config/policy.json` | Safety + execution policy |
 | `host_ai/memory/chroma` | Chroma persistent memory |
 | `host_ai/logs` | Host-side logs/warnings |
+| `host_ai/logs/cg_events.jsonl` | Structured command telemetry event stream |
 | `agent/workspace` | Allowed primary working area |
+
+Telemetry schema reference:
+
+- `agent/docs/TELEMETRY_SCHEMA.md`
+- `agent/docs/CLI_COLOR_RULES.md`
 
 ## JSON Contract from AI (Important)
 

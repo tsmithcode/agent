@@ -26,6 +26,7 @@ dependencies = [
   "python-dotenv>=1.0",
   "openai>=1.0",
   "chromadb>=0.5",
+  "streamlit>=1.32",
 ]
 
 [project.urls]

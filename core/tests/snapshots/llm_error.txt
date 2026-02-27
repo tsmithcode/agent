@@ -1,4 +1,3 @@
-╭────────────────────────────────── LLM Error ───────────────────────────────────╮
-│  Connection error.                                                             │
-│   Help: Check OPENAI_API_KEY, internet/DNS, and policy allow_domains settings. │
-╰────────────────────────────────────────────────────────────────────────────────╯
+------------ LLM Error ------------
+ERROR Connection error.
+Help: Check OPENAI_API_KEY, internet/DNS, and policy allow_domains settings.

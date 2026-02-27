@@ -15,6 +15,7 @@ SNAP_DIR = Path(__file__).resolve().parent / "snapshots"
 def _normalize(text: str) -> str:
     text = text.replace("\r\n", "\n")
     text = re.sub(r"context_chars=\d+", "context_chars=<dynamic>", text)
+    text = re.sub(r"run_id=[A-Za-z0-9_-]+", "run_id=<dynamic>", text)
     text = re.sub(r"\s+$", "", text, flags=re.MULTILINE)
     return text.strip() + "\n"
 

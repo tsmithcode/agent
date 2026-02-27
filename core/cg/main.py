@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
-import socket
 import subprocess
 import sys
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,25 +14,47 @@ import click
 import typer
 from dotenv import load_dotenv
 from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
 
+from .cli_ui import (
+    print_answer_path,
+    print_cli_notice,
+    print_full_help,
+    print_kv_table,
+    print_route_decision,
+    print_runtime_error,
+    print_section,
+    print_session_boundary,
+    print_status_line,
+)
+from .doctor import doctor_once
 from .executor import Executor, PolicyViolation
+from .inspect_ops import (
+    extract_depth,
+    open_for_review,
+    open_target,
+    outputs_once,
+    structure_once,
+    workspace_once,
+)
 from .llm import LLM
 from .memory import LongTermMemory
 from .paths import Paths
 from .policy import Policy
+from .router import decide_route
+from .telemetry import append_event, read_events, summarize_events, write_summary_csv, write_summary_json
+from cg_utils import cap_chars, truncate_for_display
 
 app = typer.Typer(add_completion=False)
 inspect_app = typer.Typer(help="Inspect project structure, workspace files, and output folders.")
 dev_app = typer.Typer(help="Developer-only maintenance and QA commands.")
 console = Console()
+SESSION_ID = str(uuid.uuid4())
 
 app.add_typer(inspect_app, name="inspect")
 app.add_typer(dev_app, name="dev")
 
 
+# Backward-compatible wrappers kept for tests and external imports.
 def _print_cli_notice(
     *,
     title: str,
@@ -43,16 +64,29 @@ def _print_cli_notice(
     help_line: Optional[str] = None,
     example_line: Optional[str] = None,
 ) -> None:
-    border_style = {"warning": "yellow", "error": "red", "success": "green"}.get(level, "cyan")
-    status = f"[{border_style}][{level}][/{border_style}]"
-    lines = [f"{status} {message}"]
-    if usage_line:
-        lines.append(f"  [cyan]Usage:[/cyan] {usage_line}")
-    if help_line:
-        lines.append(f"  [cyan]Help:[/cyan] {help_line}")
-    if example_line:
-        lines.append(f"  [green][success][/green] Example: [bold]{example_line}[/bold]")
-    console.print(Panel("\n".join(lines), title=title, expand=False, border_style=border_style))
+    print_cli_notice(
+        console,
+        title=title,
+        level=level,
+        message=message,
+        usage_line=usage_line,
+        help_line=help_line,
+        example_line=example_line,
+    )
+
+
+def _print_runtime_error(title: str, error: Exception, hint: str) -> None:
+    print_runtime_error(console, title, error, hint)
+
+
+def _print_full_help() -> None:
+    print_full_help(console)
+
+
+def _start_end_session(command_name: str):
+    run_id = str(uuid.uuid4())[:8]
+    print_session_boundary(console, command=command_name, run_id=run_id, phase="start")
+    return run_id
 
 
 def _limits_summary(policy: Policy) -> str:
@@ -64,209 +98,85 @@ def _limits_summary(policy: Policy) -> str:
     )
 
 
-def _print_runtime_error(title: str, error: Exception, hint: str) -> None:
-    _print_cli_notice(
-        title=title,
-        level="error",
-        message=str(error),
-        help_line=hint,
-    )
-
-
-def _print_full_help() -> None:
-    console.print(
-        Panel(
-            "CAD Guardian CLI\n"
-            "Policy-controlled AI agent for execution, read-only insight, diagnostics, and UI snapshot QA.",
-            title="Help",
-            expand=False,
-        )
-    )
-
-    table = Table(title="Commands and Flags")
-    table.add_column("Command", style="cyan", no_wrap=True)
-    table.add_column("Arguments", no_wrap=True)
-    table.add_column("Flags", overflow="fold")
-    table.add_column("Purpose", overflow="fold")
-
-    table.add_row(
-        "cg run",
-        "PROMPT",
-        "--full",
-        "Run agent plan and execute actionable steps under policy.",
-    )
-    table.add_row(
-        "cg ask",
-        "QUESTION",
-        "--full, --context",
-        "Read-only Q&A using source/workspace snapshot and memory.",
-    )
-    table.add_row(
-        "cg doctor",
-        "(none)",
-        "(none)",
-        "Run onboarding and environment diagnostics.",
-    )
-    table.add_row(
-        "cg inspect structure",
-        "(none)",
-        "--depth 4",
-        "Show solution structure (tree from ~).",
-    )
-    table.add_row(
-        "cg inspect workspace",
-        "(none)",
-        "--depth (optional)",
-        "Show workspace files.",
-    )
-    table.add_row(
-        "cg inspect outputs",
-        "(none)",
-        "--depth (optional)",
-        "Show output folders (reports, logs, artifacts).",
-    )
-    table.add_row(
-        "cg dev snapshot-tests",
-        "(none)",
-        "(none)",
-        "Run CLI snapshot tests, save report to workspace, open/preview report.",
-    )
-    table.add_row(
-        "cg --help",
-        "(none)",
-        "(none)",
-        "Show this expanded help view.",
-    )
-
-    console.print(table)
-    console.print(
-        Panel(
-            "Examples:\n"
-            "  cg run \"List files in workspace\"\n"
-            "  cg run \"Run tests\" --full\n"
-            "  cg ask \"What does this app do?\" --context\n"
-            "  cg doctor\n"
-            "  cg inspect structure\n"
-            "  cg inspect workspace\n"
-            "  cg inspect outputs\n"
-            "  cg dev snapshot-tests",
-            title="Quick Examples",
-            expand=False,
-        )
-    )
-
-
-def _open_for_review(path: Path) -> bool:
-    cmds: list[list[str]] = []
-    if sys.platform.startswith("darwin"):
-        cmds.append(["open", str(path)])
-    elif os.name == "nt":
-        cmds.append(["cmd", "/c", "start", "", str(path)])
-    else:
-        cmds.append(["xdg-open", str(path)])
-
-    for cmd in cmds:
-        try:
-            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True
-        except Exception:
-            continue
-    return False
-
-
-def _python_tree_output(root: Path, *, max_depth: Optional[int]) -> str:
-    root = root.resolve()
-    if not root.exists():
-        return f"{root}\n(missing)"
-
-    lines: list[str] = [str(root)]
-
-    def _walk(cur: Path, prefix: str, depth: int) -> None:
-        if max_depth is not None and depth >= max_depth:
-            return
-        try:
-            entries = sorted(cur.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
-        except Exception:
-            lines.append(f"{prefix}(unreadable)")
-            return
-        for i, entry in enumerate(entries):
-            is_last = i == (len(entries) - 1)
-            branch = "└── " if is_last else "├── "
-            suffix = "/" if entry.is_dir() else ""
-            lines.append(f"{prefix}{branch}{entry.name}{suffix}")
-            if entry.is_dir():
-                next_prefix = f"{prefix}{'    ' if is_last else '│   '}"
-                _walk(entry, next_prefix, depth + 1)
-
-    _walk(root, "", 0)
-    return "\n".join(lines)
-
-
-def _tree_output(root: Path, *, max_depth: Optional[int]) -> str:
-    tree_bin = shutil.which("tree")
-    if tree_bin:
-        cmd = [tree_bin, "-a", "-I", ".git|venv|__pycache__|.pytest_cache"]
-        if max_depth is not None and max_depth > 0:
-            cmd.extend(["-L", str(max_depth)])
-        cmd.append(str(root.resolve()))
-        try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-            out = (proc.stdout or proc.stderr or "").strip()
-            if out:
-                return out
-        except Exception:
-            pass
-    return _python_tree_output(root, max_depth=max_depth)
-
-
-def _print_tree_panel(*, title: str, root: Path, max_depth: Optional[int]) -> None:
-    console.print(Panel(Text(_tree_output(root, max_depth=max_depth)), title=title, expand=False))
-
-
-def _structure_once(depth: int) -> None:
-    paths = Paths.resolve()
-    _print_tree_panel(title=f"Solution Structure (~, depth={depth})", root=paths.home, max_depth=depth)
-
-
-def _workspace_once(depth: Optional[int]) -> None:
-    paths = Paths.resolve()
-    _print_tree_panel(title="Workspace Files", root=paths.workspace, max_depth=depth)
-
-
-def _outputs_once(depth: Optional[int]) -> None:
-    paths = Paths.resolve()
-    reports_dir = (paths.workspace / "reports").resolve()
-    _print_tree_panel(title="Outputs: Workspace Reports", root=reports_dir, max_depth=depth)
-    _print_tree_panel(title="Outputs: Host Logs", root=paths.logs_dir, max_depth=depth)
-    _print_tree_panel(title="Outputs: Host Artifacts", root=paths.artifacts_dir, max_depth=depth)
-
-
-def _cap_chars(s: str, max_chars: int, *, full_output: bool = False) -> str:
-    if full_output or max_chars <= 0 or len(s) <= max_chars:
-        return s
-    return s[:max_chars] + "...(truncated)"
-
-
-def _cap_lines(text: str, max_lines: int, *, full_output: bool = False) -> str:
-    if full_output or max_lines <= 0:
-        return text
-    lines = text.splitlines()
-    if len(lines) <= max_lines:
-        return text
-    return "\n".join(lines[:max_lines]) + "\n...(truncated lines)"
-
-
-def _truncate_for_display(
-    text: str,
+def _print_run_summary(
     *,
-    max_chars: int,
-    max_lines: int,
-    full_output: bool,
-) -> tuple[str, bool]:
-    capped_chars = _cap_chars(text, max_chars, full_output=full_output)
-    out = _cap_lines(capped_chars, max_lines, full_output=full_output)
-    truncated = (not full_output) and (out != text)
-    return out, truncated
+    route_mode: str,
+    decision_reason: str,
+    outcome: str,
+    llm_used: bool,
+    handler_id: str = "",
+) -> None:
+    lines = [
+        f"outcome={outcome}",
+        f"route={route_mode}",
+        f"handler={handler_id or 'n/a'}",
+        f"llm_used={llm_used}",
+        f"reason={decision_reason or 'n/a'}",
+    ]
+    print_section(
+        console,
+        title="Run Summary",
+        body="\n".join(lines),
+    )
+
+
+def _log_event(paths: Paths, event: dict[str, Any]) -> None:
+    try:
+        payload = dict(event)
+        payload.setdefault("session_id", SESSION_ID)
+        payload.setdefault("run_id", str(uuid.uuid4()))
+        append_event(paths.logs_dir, payload)
+    except Exception:
+        return
+
+
+
+def _execute_deterministic_handler(handler_id: str, prompt: str) -> tuple[bool, str]:
+    try:
+        if handler_id == "inspect_workspace":
+            workspace_once(console, extract_depth(prompt, default=4))
+            return True, "executed inspect workspace"
+        if handler_id == "inspect_outputs":
+            outputs_once(console, extract_depth(prompt, default=3))
+            return True, "executed inspect outputs"
+        if handler_id == "inspect_structure":
+            structure_once(console, extract_depth(prompt, default=4))
+            return True, "executed inspect structure"
+        if handler_id == "dev_snaps":
+            _run_snapshot_tests(log_event=False)
+            return True, "executed dev snaps"
+        return False, f"unknown handler: {handler_id}"
+    except SystemExit as e:
+        code = int(getattr(e, "code", 1) or 1)
+        return code == 0, f"handler exited with code {code}"
+    except Exception as e:
+        return False, str(e)
+
+
+def _has_confirm_token(prompt: str) -> bool:
+    p = (prompt or "").lower()
+    return bool(re.search(r"\bconfirm\s*[:=]\s*yes\b", p))
+
+
+def _requires_apply_confirmation(prompt: str, actionable_steps: list[Any]) -> bool:
+    p = (prompt or "").lower()
+    apply_intent = any(
+        k in p
+        for k in (
+            "apply",
+            "rename",
+            "rewrite",
+            "sanitize",
+            "normalize",
+            "batch",
+            "delete",
+            "move",
+            "modify",
+            "update",
+        )
+    )
+    has_risky_action = any(getattr(s, "type", "") in {"cmd", "write"} for s in actionable_steps)
+    return apply_intent and has_risky_action
 
 
 def _step_preview_text(step: Any) -> str:
@@ -285,7 +195,7 @@ def _actionable_steps(reply_plan: list[Any]) -> list[Any]:
 
 def _collect_paths(root: Path, *, max_files: int) -> list[str]:
     out: list[str] = []
-    skip_dirs = {".git", "venv", "__pycache__", ".logs", "reports", ".pytest_cache"}
+    skip_dirs = {".git", "venv", "__pycache__", ".logs", ".pytest_cache"}
     for cur, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d not in skip_dirs]
         for name in files:
@@ -297,6 +207,35 @@ def _collect_paths(root: Path, *, max_files: int) -> list[str]:
             if len(out) >= max_files:
                 return out
     return out
+
+
+def _ask_workspace_file_count(question: str, workspace: Path) -> tuple[bool, str]:
+    q = (question or "").strip().lower()
+    m = re.search(r"\bhow many\s+([a-z0-9._-]+)\s+files?\b", q)
+    if not m:
+        return False, ""
+    target = m.group(1).strip()
+    if not target:
+        return False, ""
+
+    count = 0
+    samples: list[str] = []
+    for cur, dirs, files in os.walk(workspace):
+        dirs[:] = [d for d in dirs if d not in {".git", "__pycache__", ".pytest_cache"}]
+        for name in files:
+            name_l = name.lower()
+            matched = name_l == target
+            if target.startswith("."):
+                matched = name_l.endswith(target)
+            if matched:
+                count += 1
+                if len(samples) < 5:
+                    p = (Path(cur) / name)
+                    samples.append(str(p.relative_to(workspace)))
+
+    sample_line = f"\nSample paths:\n- " + "\n- ".join(samples) if samples else ""
+    answer = f'Found {count} file(s) matching "{target}" in workspace: {workspace}{sample_line}'
+    return True, answer
 
 
 def _collect_runtime_snapshot(paths: Paths, policy: Policy) -> str:
@@ -316,11 +255,11 @@ def _collect_runtime_snapshot(paths: Paths, policy: Policy) -> str:
                 timeout=2,
             )
             status = (proc.stdout or proc.stderr or "").strip() or "(clean or unavailable)"
-            blocks.append("Git status:\n" + _cap_chars(status, 1200))
+            blocks.append("Git status:\n" + cap_chars(status, 1200))
         except Exception:
             pass
 
-    return _cap_chars("\n\n".join(blocks), max_chars)
+    return cap_chars("\n\n".join(blocks), max_chars)
 
 
 def _execute_step(
@@ -337,35 +276,46 @@ def _execute_step(
         if not step.path:
             raise PolicyViolation("write step missing path")
         out_path = executor.write_file(step.path, step.value)
-        console.print(f"[green]WROTE[/green] {out_path}")
-        console.print("[green]Run complete[/green] executed=write")
+        print_section(
+            console,
+            title="Write",
+            body=f"WROTE {out_path}\nRun complete executed=write",
+        )
         return True
 
     if step.type == "cmd":
         res = executor.run(step.value, timeout_s=max_runtime_seconds)
-        console.print(f"[cyan]CMD[/cyan] {res.command}  [bold]{'OK' if res.ok else 'FAIL'}[/bold]")
+        print_section(
+            console,
+            title="Command",
+            body=f"CMD {res.command}\nstatus={'OK' if res.ok else 'FAIL'}",
+        )
         show_output = full_output or (not res.ok)
         if show_output and res.stdout.strip():
-            out, truncated = _truncate_for_display(
+            out, truncated = truncate_for_display(
                 res.stdout,
                 max_chars=max_output_chars,
                 max_lines=stdout_line_cap,
                 full_output=full_output,
             )
-            console.print(Panel(out, title="stdout", expand=False))
+            print_section(console, title="stdout", body=out)
             if truncated:
-                console.print("[yellow]stdout truncated[/yellow] Use [bold]--full[/bold] to view full output.")
+                print_status_line(console, "stdout truncated. Use --full to view full output.", tone="warning")
         if show_output and res.stderr.strip():
-            err, truncated = _truncate_for_display(
+            err, truncated = truncate_for_display(
                 res.stderr,
                 max_chars=max_output_chars,
                 max_lines=stderr_line_cap,
                 full_output=full_output,
             )
-            console.print(Panel(err, title="stderr", expand=False))
+            print_section(console, title="stderr", body=err)
             if truncated:
-                console.print("[yellow]stderr truncated[/yellow] Use [bold]--full[/bold] to view full output.")
-        console.print(f"[green]Run complete[/green] executed=cmd ok={res.ok} exit_code={res.exit_code}")
+                print_status_line(console, "stderr truncated. Use --full to view full output.", tone="warning")
+        print_section(
+            console,
+            title="Command Result",
+            body=f"Run complete executed=cmd ok={res.ok} exit_code={res.exit_code}",
+        )
         return res.ok
 
     return True
@@ -378,7 +328,46 @@ def _memory_context(memory: LongTermMemory, prompt: str, policy: Policy) -> tupl
     retrieved_text_full = "\n\n".join(
         [f"- {it.text} (kind={str((it.metadata or {}).get('kind', ''))})" for it in retrieved_items]
     ) or "(none)"
-    return _cap_chars(retrieved_text_full, max_memory_chars), len(retrieved_items)
+    return cap_chars(retrieved_text_full, max_memory_chars), len(retrieved_items)
+
+
+def _infer_memory_kind(user_text: str, *, mode: str) -> str:
+    t = (user_text or "").strip().lower()
+    if any(k in t for k in ["prefer ", "i prefer", "always ", "never ", "by default", "do not"]):
+        return "preferences"
+    if any(k in t for k in ["my name is", "i am ", "i'm ", "about me"]):
+        return "user_profile"
+    if mode == "run" and any(k in t for k in ["workflow", "pipeline", "scan", "propose", "confirm", "apply", "log"]):
+        return "workflow_pattern"
+    return "interaction"
+
+
+def _save_memory(
+    memory: LongTermMemory,
+    *,
+    user_text: str,
+    assistant_text: str,
+    mode: str,
+    kind_override: Optional[str] = None,
+    extra_metadata: Optional[dict[str, str]] = None,
+) -> None:
+    kind = kind_override or _infer_memory_kind(user_text, mode=mode)
+    metadata = {
+        "ts_utc": datetime.now(timezone.utc).isoformat(),
+        "kind": kind,
+        "mode": mode,
+    }
+    if extra_metadata:
+        metadata.update(extra_metadata)
+    try:
+        memory.add(
+            mem_id=str(uuid.uuid4()),
+            text=cap_chars(f"USER: {user_text}\nASSISTANT: {assistant_text}", 4000),
+            metadata=metadata,
+        )
+    except Exception:
+        # Memory should improve quality, but must never break core task execution.
+        return
 
 
 def _ask_capability_brief(policy: Policy) -> str:
@@ -388,7 +377,7 @@ def _ask_capability_brief(policy: Policy) -> str:
     return (
         "Agent profile:\n"
         "- Product: CAD Guardian CLI\n"
-        "- Modes: run, ask, doctor, inspect, dev (+ legacy aliases)\n"
+        "- Modes: run, ask, doctor, inspect, dev\n"
         f"- Execution mode: {policy.execution_mode()} (max_actions_per_run={policy.max_actions_per_run()})\n"
         f"- Limits: max_completion_tokens={policy.max_completion_tokens()}, max_steps_per_plan={policy.max_steps_per_plan()}, "
         f"max_runtime_seconds={policy.max_runtime_seconds()}\n"
@@ -400,6 +389,9 @@ def _ask_capability_brief(policy: Policy) -> str:
 
 
 def _run_once(prompt: str, *, full_output: bool = False) -> None:
+    started = time.perf_counter()
+    run_id = str(uuid.uuid4())[:8]
+    print_session_boundary(console, command="run", run_id=run_id, phase="start")
     load_dotenv()
 
     paths = Paths.resolve()
@@ -417,9 +409,29 @@ def _run_once(prompt: str, *, full_output: bool = False) -> None:
     stderr_line_cap = max(1, policy.max_stderr_lines())
 
     api_key = os.getenv("OPENAI_API_KEY", "").strip() or None
-    if not api_key:
-        console.print("[yellow]OPENAI_API_KEY not set. LLM call skipped.[/yellow]")
-        return
+    route_mode = "llm"
+    handler_id = ""
+    llm_used = False
+    actionable_steps = 0
+    executed_steps = 0
+
+    def _finish(outcome: str, *, error_type: str = "", error_message: str = "") -> None:
+        _log_event(
+            paths,
+            {
+                "command": "run",
+                "route_mode": route_mode,
+                "handler_id": handler_id,
+                "outcome": outcome,
+                "duration_ms": int((time.perf_counter() - started) * 1000),
+                "llm_used": llm_used,
+                "actionable_steps": actionable_steps,
+                "executed_steps": executed_steps,
+                "error_type": error_type,
+                "error_message": cap_chars(error_message or "", 400),
+            },
+        )
+        print_session_boundary(console, command="run", run_id=run_id, phase="end")
 
     memory = LongTermMemory(
         chroma_dir=str(paths.chroma_dir),
@@ -427,61 +439,151 @@ def _run_once(prompt: str, *, full_output: bool = False) -> None:
         openai_api_key=api_key,
     )
 
+    decision = decide_route(prompt, policy)
+    if decision.mode == "deterministic" and decision.handler_id:
+        route_mode = "deterministic"
+        handler_id = decision.handler_id
+        print_route_decision(console, decision)
+        ok, detail = _execute_deterministic_handler(decision.handler_id, prompt)
+        print_answer_path(console, "command", f"deterministic handler executed: {decision.handler_id}")
+        _save_memory(
+            memory,
+            user_text=prompt,
+            assistant_text=f"deterministic handler={decision.handler_id} detail={detail}",
+            mode="run",
+            kind_override="task_result",
+            extra_metadata={"route_mode": "deterministic", "handler_id": decision.handler_id},
+        )
+        if not ok:
+            print_cli_notice(
+                console,
+                title="Deterministic Handler Failed",
+                level="error",
+                message=detail,
+                help_line="Rephrase the request or fall back to an LLM-planned run.",
+            )
+            _print_run_summary(
+                route_mode=route_mode,
+                decision_reason=decision.reason,
+                outcome="handler_failed",
+                llm_used=False,
+                handler_id=handler_id,
+            )
+            _finish("handler_failed", error_type="deterministic_handler", error_message=detail)
+            raise SystemExit(1)
+        _print_run_summary(
+            route_mode=route_mode,
+            decision_reason=decision.reason,
+            outcome="success",
+            llm_used=False,
+            handler_id=handler_id,
+        )
+        _finish("success")
+        return
+
+    if not api_key:
+        route_mode = "llm"
+        print_cli_notice(
+            console,
+            title="LLM Required",
+            level="warning",
+            message="No deterministic route matched and OPENAI_API_KEY is not set.",
+            help_line="Set OPENAI_API_KEY or use an obvious deterministic request like 'show workspace files'.",
+        )
+        _print_run_summary(
+            route_mode=route_mode,
+            decision_reason=decision.reason,
+            outcome="llm_required",
+            llm_used=False,
+        )
+        _finish("llm_required")
+        return
+
     retrieved_text, retrieved_count = _memory_context(memory, prompt, policy)
 
-    console.print(
-        Panel(
-            f"[bold]Prompt[/bold]\n{prompt}\n\n[bold]Memory[/bold]\n"
-            f"retrieved={retrieved_count} | sent_chars={len(retrieved_text)}\n\n"
-            f"[bold]Runtime[/bold]\n{_limits_summary(policy)}",
-            title="CAD Guardian Agent",
-            expand=False,
-        )
+    print_kv_table(
+        console,
+        title="CAD Guardian Agent",
+        rows=[
+            ("Prompt", prompt),
+            ("Memory", f"retrieved={retrieved_count} | sent_chars={len(retrieved_text)}"),
+            ("Runtime", _limits_summary(policy)),
+        ],
     )
+    print_route_decision(console, decision)
 
     llm = LLM(api_key=api_key)
     try:
+        llm_used = True
         reply = llm.ask(prompt, retrieved_text, max_completion_tokens=max_completion_tokens)
     except Exception as e:
-        _print_runtime_error(
+        print_runtime_error(
+            console,
             "LLM Error",
             e,
             "Check OPENAI_API_KEY, internet/DNS, and policy allow_domains settings.",
         )
+        _print_run_summary(
+            route_mode=route_mode,
+            decision_reason=decision.reason,
+            outcome="llm_error",
+            llm_used=True,
+        )
+        _finish("llm_error", error_type=type(e).__name__, error_message=str(e))
         return
 
     if len(reply.plan) > max_steps_per_plan:
         reply.plan = reply.plan[:max_steps_per_plan]
-        console.print(f"[yellow]Plan truncated to {max_steps_per_plan} steps.[/yellow]")
+        print_status_line(console, f"Plan truncated to {max_steps_per_plan} steps.", tone="warning")
 
     step_lines = [f"{i}. {_step_preview_text(s)}" for i, s in enumerate(reply.plan, 1)] or ["(no plan steps returned)"]
-    console.print(Panel("\n".join(step_lines), title="Execution Plan", expand=False))
+    print_section(console, title="Execution Plan", body="\n".join(step_lines))
 
-    answer_display, answer_truncated = _truncate_for_display(
+    answer_display, answer_truncated = truncate_for_display(
         reply.answer,
         max_chars=max_response_chars,
         max_lines=max_summary_lines,
         full_output=full_output,
     )
-    console.print(Panel(answer_display, title="Answer", expand=False))
+    print_section(console, title="Answer", body=answer_display)
     if answer_truncated:
-        console.print("[yellow]Answer truncated[/yellow] Use [bold]--full[/bold] or raise answer limits in policy.")
+        print_status_line(console, "Answer truncated. Use --full or raise answer limits in policy.", tone="warning")
 
-    memory.add(
-        mem_id=str(uuid.uuid4()),
-        text=_cap_chars(f"USER: {prompt}\nASSISTANT: {reply.answer}", 4000),
-        metadata={"ts_utc": datetime.now(timezone.utc).isoformat(), "kind": "interaction"},
+    _save_memory(
+        memory,
+        user_text=prompt,
+        assistant_text=reply.answer,
+        mode="run",
+        extra_metadata={"route_mode": "llm"},
     )
 
     actionable = _actionable_steps(reply.plan)
+    actionable_steps = len(actionable)
     if not actionable:
-        _print_cli_notice(
+        print_answer_path(console, "llm", "LLM answer returned notes only; no executable actions in plan")
+        _save_memory(
+            memory,
+            user_text=prompt,
+            assistant_text="run_outcome=no_actionable executed_steps=0 actionable_steps=0",
+            mode="run",
+            kind_override="task_result",
+            extra_metadata={"route_mode": "llm"},
+        )
+        print_cli_notice(
+            console,
             title="No Actionable Steps",
             level="warning",
             message="The model returned notes only; nothing can be executed.",
             help_line='Try a direct action request, e.g. cg run "list files in workspace".',
             example_line='cg ask "What command should I run to inspect current files?"',
         )
+        _print_run_summary(
+            route_mode=route_mode,
+            decision_reason=decision.reason,
+            outcome="no_actionable",
+            llm_used=True,
+        )
+        _finish("no_actionable")
         return
 
     mode = policy.execution_mode()
@@ -491,15 +593,48 @@ def _run_once(prompt: str, *, full_output: bool = False) -> None:
     else:
         selected = actionable[:max_actions]
 
+    if _requires_apply_confirmation(prompt, selected) and not _has_confirm_token(prompt):
+        print_cli_notice(
+            console,
+            title="Confirmation Required",
+            level="warning",
+            message="Apply-style request detected. No changes were executed.",
+            help_line="Re-run with confirm:yes to apply the proposed actions.",
+            example_line='cg run "rename files to snake_case in workspace confirm:yes"',
+        )
+        print_answer_path(console, "llm", "LLM generated an apply plan; execution blocked until explicit confirmation")
+        _save_memory(
+            memory,
+            user_text=prompt,
+            assistant_text="run_outcome=confirmation_required executed_steps=0",
+            mode="run",
+            kind_override="task_result",
+            extra_metadata={"route_mode": "llm"},
+        )
+        _print_run_summary(
+            route_mode=route_mode,
+            decision_reason=decision.reason,
+            outcome="confirmation_required",
+            llm_used=True,
+        )
+        _finish("confirmation_required")
+        return
+
     if mode == "continue_until_done" and len(actionable) > len(selected):
-        console.print(
-            f"[yellow]Execution capped[/yellow] actionable_steps={len(actionable)} -> executing={len(selected)} (max_actions_per_run={max_actions})"
+        print_status_line(
+            console,
+            f"Execution capped actionable_steps={len(actionable)} -> executing={len(selected)} (max_actions_per_run={max_actions})",
+            tone="warning",
         )
 
     executor = Executor(policy=policy, workspace=paths.workspace)
+    executed_steps = 0
+    outcome = "completed"
+    outcome_detail = ""
     for i, step in enumerate(selected, 1):
-        console.print(f"[dim]Executing step {i}/{len(selected)}[/dim] {_step_preview_text(step)}")
+        print_status_line(console, f"Executing step {i}/{len(selected)} {_step_preview_text(step)}", tone="info")
         try:
+            executed_steps += 1
             ok = _execute_step(
                 executor,
                 step,
@@ -510,7 +645,9 @@ def _run_once(prompt: str, *, full_output: bool = False) -> None:
                 full_output=full_output,
             )
             if not ok:
-                _print_cli_notice(
+                outcome = "command_failed"
+                print_cli_notice(
+                    console,
                     title="Execution Stopped",
                     level="warning",
                     message="A command failed; stopping remaining steps.",
@@ -518,17 +655,57 @@ def _run_once(prompt: str, *, full_output: bool = False) -> None:
                 )
                 break
         except PolicyViolation as e:
-            _print_runtime_error("Policy Violation", e, "Review policy allow/deny settings and requested operation.")
+            outcome = "policy_violation"
+            rule = getattr(e, "rule", "") or "unknown_policy_rule"
+            outcome_detail = f"{str(e)} (rule={rule})"
+            print_cli_notice(
+                console,
+                title="Policy Violation",
+                level="error",
+                message=str(e),
+                help_line=f"Violated policy: {rule} (config/policy.json).",
+                example_line="cg doctor --verbose",
+            )
             break
         except Exception as e:
-            _print_runtime_error("Execution Error", e, "Re-run with --full and inspect command/output details.")
+            outcome = "execution_error"
+            outcome_detail = str(e)
+            print_runtime_error(console, "Execution Error", e, "Re-run with --full and inspect command/output details.")
             break
 
     if mode == "single_step" and len(actionable) > 1:
-        console.print("[dim]Stopped after 1 actionable step (policy: execution_mode=single_step).[/dim]")
+        print_status_line(console, "Stopped after 1 actionable step (policy: execution_mode=single_step).", tone="info")
+
+    print_answer_path(console, "both", f"LLM planned actions; executor ran {executed_steps} step(s) under policy")
+
+    task_result = (
+        f"run_outcome={outcome} executed_steps={executed_steps}/{len(selected)} "
+        f"actionable_steps={len(actionable)} execution_mode={mode}"
+    )
+    if outcome_detail:
+        task_result += f" detail={cap_chars(outcome_detail, 300)}"
+    _save_memory(
+        memory,
+        user_text=prompt,
+        assistant_text=task_result,
+        mode="run",
+        kind_override="task_result",
+        extra_metadata={"route_mode": "llm"},
+    )
+    _print_run_summary(
+        route_mode=route_mode,
+        decision_reason=decision.reason,
+        outcome="success" if outcome == "completed" else outcome,
+        llm_used=True,
+        handler_id=handler_id,
+    )
+    _finish("success" if outcome == "completed" else outcome, error_message=outcome_detail)
 
 
 def _ask_once(question: str, *, full_output: bool = False, context: bool = False) -> None:
+    started = time.perf_counter()
+    run_id = str(uuid.uuid4())[:8]
+    print_session_boundary(console, command="ask", run_id=run_id, phase="start")
     load_dotenv()
 
     paths = Paths.resolve()
@@ -538,10 +715,70 @@ def _ask_once(question: str, *, full_output: bool = False, context: bool = False
     max_response_chars = policy.max_answer_chars()
     max_summary_lines = policy.max_answer_lines()
     max_completion_tokens = max(64, policy.max_completion_tokens())
+    llm_used = False
+    ask_route_mode = "llm"
+    ask_handler_id = ""
+
+    def _finish(outcome: str, *, error_type: str = "", error_message: str = "") -> None:
+        _log_event(
+            paths,
+            {
+                "command": "ask",
+                "route_mode": ask_route_mode,
+                "handler_id": ask_handler_id,
+                "outcome": outcome,
+                "duration_ms": int((time.perf_counter() - started) * 1000),
+                "llm_used": llm_used,
+                "actionable_steps": 0,
+                "executed_steps": 0,
+                "error_type": error_type,
+                "error_message": cap_chars(error_message or "", 400),
+            },
+        )
+        print_session_boundary(console, command="ask", run_id=run_id, phase="end")
+
+    matched_count, count_answer = _ask_workspace_file_count(question, paths.workspace)
+    if matched_count:
+        ask_route_mode = "deterministic"
+        ask_handler_id = "count_files_by_name"
+        print_kv_table(
+            console,
+            title="CAD Guardian Insight",
+            rows=[
+                ("Question", question),
+                ("Context", "deterministic_workspace_scan=true"),
+                ("Runtime", _limits_summary(policy)),
+            ],
+        )
+        answer_display, answer_truncated = truncate_for_display(
+            count_answer,
+            max_chars=max_response_chars,
+            max_lines=max_summary_lines,
+            full_output=full_output,
+        )
+        print_section(console, title="Insight Answer", body=answer_display)
+        print_answer_path(console, "command", "deterministic ask handler scanned workspace files")
+        if answer_truncated:
+            print_status_line(console, "Insight answer truncated. Use --full for full response.", tone="warning")
+        _save_memory(
+            LongTermMemory(
+                chroma_dir=str(paths.chroma_dir),
+                collection_name="cg_openclaw_memory",
+                openai_api_key=(os.getenv("OPENAI_API_KEY", "").strip() or None),
+            ),
+            user_text=question,
+            assistant_text=count_answer,
+            mode="ask",
+            kind_override="task_result",
+            extra_metadata={"route_mode": "deterministic", "handler_id": "count_files_by_name"},
+        )
+        _finish("success")
+        return
 
     api_key = os.getenv("OPENAI_API_KEY", "").strip() or None
     if not api_key:
-        console.print("[yellow]OPENAI_API_KEY not set. LLM call skipped.[/yellow]")
+        print_status_line(console, "OPENAI_API_KEY not set. LLM call skipped.", tone="warning")
+        _finish("llm_required")
         return
 
     memory = LongTermMemory(
@@ -551,14 +788,14 @@ def _ask_once(question: str, *, full_output: bool = False, context: bool = False
     )
 
     # Ask mode is source-first: keep memory as light, secondary context.
-    ask_memory_items = 1
+    ask_memory_items = min(2, max(1, policy.max_memory_items()))
     ask_memory_chars = min(800, policy.max_memory_chars())
     retrieved_items = memory.query(question, n_results=ask_memory_items)
     retrieved_count = len(retrieved_items)
     retrieved_text_full = "\n\n".join(
         [f"- {it.text} (kind={str((it.metadata or {}).get('kind', ''))})" for it in retrieved_items]
     ) or "(none)"
-    retrieved_text = _cap_chars(retrieved_text_full, ask_memory_chars)
+    retrieved_text = cap_chars(retrieved_text_full, ask_memory_chars)
     snapshot_text = _collect_runtime_snapshot(paths, policy)
     capability_text = _ask_capability_brief(policy)
     context_text = (
@@ -568,21 +805,22 @@ def _ask_once(question: str, *, full_output: bool = False, context: bool = False
     )
 
     if context:
-        preview = _cap_chars(context_text, 12000, full_output=full_output)
-        console.print(Panel(Text(preview), title="Ask Context", expand=False))
+        preview = cap_chars(context_text, 12000, full_output=full_output)
+        print_section(console, title="Ask Context", body=preview)
 
-    console.print(
-        Panel(
-            f"[bold]Question[/bold]\n{question}\n\n[bold]Context[/bold]\n"
-            f"memory_items={retrieved_count} (secondary) | context_chars={len(context_text)}\n\n"
-            f"[bold]Runtime[/bold]\n{_limits_summary(policy)}",
-            title="CAD Guardian Insight",
-            expand=False,
-        )
+    print_kv_table(
+        console,
+        title="CAD Guardian Insight",
+        rows=[
+            ("Question", question),
+            ("Context", f"memory_items={retrieved_count} (secondary) | context_chars={len(context_text)}"),
+            ("Runtime", _limits_summary(policy)),
+        ],
     )
 
     llm = LLM(api_key=api_key)
     try:
+        llm_used = True
         reply = llm.ask(
             question,
             context_text,
@@ -590,126 +828,37 @@ def _ask_once(question: str, *, full_output: bool = False, context: bool = False
             task_mode="ask",
         )
     except Exception as e:
-        _print_runtime_error(
+        print_runtime_error(
+            console,
             "LLM Error",
             e,
             "Check OPENAI_API_KEY, internet/DNS, and policy allow_domains settings.",
         )
+        _finish("llm_error", error_type=type(e).__name__, error_message=str(e))
         return
 
-    answer_display, answer_truncated = _truncate_for_display(
+    answer_display, answer_truncated = truncate_for_display(
         reply.answer,
         max_chars=max_response_chars,
         max_lines=max_summary_lines,
         full_output=full_output,
     )
-    console.print(Panel(answer_display, title="Insight Answer", expand=False))
+    print_section(console, title="Insight Answer", body=answer_display)
+    print_answer_path(console, "llm", "ask mode is read-only and uses LLM over runtime snapshot context")
     if answer_truncated:
-        console.print("[yellow]Insight answer truncated[/yellow] Use [bold]--full[/bold] for full response.")
+        print_status_line(console, "Insight answer truncated. Use --full for full response.", tone="warning")
 
-    memory.add(
-        mem_id=str(uuid.uuid4()),
-        text=_cap_chars(f"USER: {question}\nASSISTANT: {reply.answer}", 4000),
-        metadata={"ts_utc": datetime.now(timezone.utc).isoformat(), "kind": "interaction"},
+    _save_memory(
+        memory,
+        user_text=question,
+        assistant_text=reply.answer,
+        mode="ask",
     )
+    _finish("success")
 
 
-def _doctor_once() -> None:
-    load_dotenv()
-    rows: list[tuple[str, str, str]] = []
-    policy_path: Optional[Path] = None
-
-    api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
-    rows.append(("OPENAI_API_KEY", "PASS" if api_key else "WARN", "Set" if api_key else "Missing"))
-
-    policy: Optional[Policy] = None
-    paths: Optional[Paths] = None
-    try:
-        paths = Paths.resolve()
-        rows.append(("Paths.resolve()", "PASS", str(paths.agent_root)))
-    except Exception as e:
-        rows.append(("Paths.resolve()", "FAIL", str(e)))
-
-    if paths is not None:
-        policy_path = (paths.home / "agent" / "config" / "policy.json").resolve()
-        try:
-            policy = Policy.load(str(policy_path))
-            rows.append(("Policy.load()", "PASS", str(policy_path)))
-        except Exception as e:
-            rows.append(("Policy.load()", "FAIL", str(e)))
-
-    if paths is not None:
-        tracked_paths: list[tuple[str, Path, bool]] = [
-            ("Path: home", paths.home, True),
-            ("Path: agent_root", paths.agent_root, True),
-            ("Path: workspace", paths.workspace, True),
-            ("Path: host_ai", paths.host_ai, True),
-            ("Path: memory_root", paths.memory_root, True),
-            ("Path: chroma_dir", paths.chroma_dir, True),
-            ("Path: logs_dir", paths.logs_dir, True),
-            ("Path: artifacts_dir", paths.artifacts_dir, True),
-        ]
-        if policy_path is not None:
-            tracked_paths.append(("Path: policy.json", policy_path, False))
-
-        for label, p, should_be_dir in tracked_paths:
-            exists = p.exists()
-            status = "PASS" if exists else "FAIL"
-            kind = "dir" if should_be_dir else "file"
-            details = f"{p} ({kind}, {'exists' if exists else 'missing'})"
-            rows.append((label, status, details))
-
-        workspace_exists = paths.workspace.exists()
-        rows.append(("Workspace path", "PASS" if workspace_exists else "FAIL", str(paths.workspace)))
-        write_ok = os.access(paths.workspace, os.W_OK)
-        rows.append(("Workspace writable", "PASS" if write_ok else "FAIL", "yes" if write_ok else "no"))
-        read_ok = os.access(paths.workspace, os.R_OK)
-        rows.append(("Workspace readable", "PASS" if read_ok else "FAIL", "yes" if read_ok else "no"))
-
-    git_path = shutil.which("git")
-    rows.append(("git binary", "PASS" if git_path else "WARN", git_path or "Not found"))
-
-    try:
-        host = socket.gethostbyname("api.openai.com")
-        rows.append(("DNS api.openai.com", "PASS", host))
-    except Exception as e:
-        rows.append(("DNS api.openai.com", "WARN", str(e)))
-
-    if policy is not None:
-        rows.append(("Execution mode", "PASS", policy.execution_mode()))
-        rows.append(("Max completion tokens", "PASS", str(policy.max_completion_tokens())))
-        rows.append(("Max memory chars", "PASS", str(policy.max_memory_chars())))
-
-    table = Table(title="CAD Guardian Doctor Report")
-    table.add_column("Check", style="cyan", no_wrap=True)
-    table.add_column("Status", no_wrap=True)
-    table.add_column("Detail", overflow="fold")
-
-    passes = warns = fails = 0
-    for name, status, detail in rows:
-        if status == "PASS":
-            passes += 1
-            status_fmt = "[green]PASS[/green]"
-        elif status == "WARN":
-            warns += 1
-            status_fmt = "[yellow]WARN[/yellow]"
-        else:
-            fails += 1
-            status_fmt = "[red]FAIL[/red]"
-        table.add_row(name, status_fmt, detail)
-
-    console.print(table)
-    console.print(
-        Panel(
-            f"checks={len(rows)} | pass={passes} | warn={warns} | fail={fails}\n"
-            "Tip: Resolve FAIL first, then WARN for best user experience.",
-            title="Doctor Summary",
-            expand=False,
-        )
-    )
-
-
-def _run_snapshot_tests() -> None:
+def _run_snapshot_tests(*, log_event: bool = True) -> None:
+    started = time.perf_counter()
     paths = Paths.resolve()
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     report_dir = (paths.workspace / "reports" / "ui-snapshots" / run_id).resolve()
@@ -740,22 +889,34 @@ def _run_snapshot_tests() -> None:
 
     level = "success" if proc.returncode == 0 else "error"
     title = "Snapshot Tests Passed" if proc.returncode == 0 else "Snapshot Tests Failed"
-    _print_cli_notice(
+    print_cli_notice(
+        console,
         title=title,
         level=level,
         message=f"Report saved: {report_file}",
         help_line="Review the report for exact screen snapshots and assertion details.",
     )
 
-    opened = _open_for_review(report_file)
+    opened = open_for_review(report_file)
     if not opened:
-        preview = _cap_chars(report_file.read_text(encoding="utf-8", errors="ignore"), 3000)
-        console.print(
-            Panel(
-                preview,
-                title="Report Preview (open unavailable)",
-                expand=False,
-            )
+        preview = cap_chars(report_file.read_text(encoding="utf-8", errors="ignore"), 3000)
+        print_section(console, title="Report Preview (open unavailable)", body=preview)
+
+    if log_event:
+        _log_event(
+            paths,
+            {
+                "command": "dev_snaps",
+                "route_mode": "deterministic",
+                "handler_id": "dev_snaps",
+                "outcome": "success" if proc.returncode == 0 else "error",
+                "duration_ms": int((time.perf_counter() - started) * 1000),
+                "llm_used": False,
+                "actionable_steps": 1,
+                "executed_steps": 1,
+                "error_type": "" if proc.returncode == 0 else "snapshot_tests_failed",
+                "error_message": "" if proc.returncode == 0 else "unittest exit_code != 0",
+            },
         )
 
     if proc.returncode != 0:
@@ -767,7 +928,8 @@ def main(ctx: typer.Context):
     """CAD Guardian CLI."""
     if ctx.invoked_subcommand is not None:
         return
-    _print_cli_notice(
+    print_cli_notice(
+        console,
         title="Command Required",
         level="warning",
         message="Select a command to continue.",
@@ -791,51 +953,203 @@ def run(
 def ask(
     question: str = typer.Argument(..., help="Question about the current project state."),
     full_output: bool = typer.Option(False, "--full", help="Disable answer truncation."),
-    context: bool = typer.Option(False, "--context", help="Show the context payload sent to the model."),
+    context: bool = typer.Option(False, "--ctx", help="Show the context payload sent to the model."),
 ):
     """Read-only Q&A over current source/workspace state."""
     _ask_once(question, full_output=full_output, context=context)
 
 
 @app.command("doctor")
-def doctor():
+def doctor(
+    verbose: bool = typer.Option(False, "--verbose", help="Show full path inventory and expanded diagnostics."),
+):
     """Run onboarding diagnostics and environment checks."""
-    _doctor_once()
+    run_id = _start_end_session("doctor")
+    started = time.perf_counter()
+    outcome = "success"
+    err_type = ""
+    err_msg = ""
+    summary: dict[str, int] = {"checks": 0, "pass": 0, "warn": 0, "fail": 0}
+    try:
+        summary = doctor_once(console, verbose=verbose)
+        if summary.get("fail", 0) > 0:
+            outcome = "fail"
+        elif summary.get("warn", 0) > 0:
+            outcome = "warn"
+    except Exception as e:
+        outcome = "error"
+        err_type = type(e).__name__
+        err_msg = str(e)
+        raise
+    finally:
+        try:
+            paths = Paths.resolve()
+            _log_event(
+                paths,
+                {
+                    "command": "doctor",
+                    "route_mode": "n/a",
+                    "handler_id": "",
+                    "outcome": outcome,
+                    "duration_ms": int((time.perf_counter() - started) * 1000),
+                    "llm_used": False,
+                    "actionable_steps": 0,
+                    "executed_steps": 0,
+                    "error_type": err_type,
+                    "error_message": cap_chars(err_msg, 400),
+                    "doctor_warn": int(summary.get("warn", 0)),
+                    "doctor_fail": int(summary.get("fail", 0)),
+                    "doctor_checks": int(summary.get("checks", 0)),
+                    "verbose": bool(verbose),
+                },
+            )
+        except Exception:
+            pass
+        print_session_boundary(console, command="doctor", run_id=run_id, phase="end")
 
 
-@dev_app.command("snapshot-tests")
-def dev_snapshot_tests():
+@dev_app.command("snaps")
+def dev_snaps():
     """Run CLI snapshot tests, save report in workspace, and open it."""
-    _run_snapshot_tests()
+    run_id = _start_end_session("dev.snaps")
+    try:
+        _run_snapshot_tests()
+    finally:
+        print_session_boundary(console, command="dev.snaps", run_id=run_id, phase="end")
+
+
+@dev_app.command("metrics")
+def dev_metrics(
+    fmt: str = typer.Option("json", "--format", help="Summary report format: json or csv."),
+    limit: int = typer.Option(0, "--limit", min=0, help="Optional tail limit of events (0 = all)."),
+):
+    """Aggregate JSONL telemetry into BI-ready summary report files."""
+    f = (fmt or "json").strip().lower()
+    if f not in {"json", "csv"}:
+        print_cli_notice(
+            console,
+            title="Invalid Format",
+            level="error",
+            message=f"Unsupported format: {fmt}",
+            help_line="Use --format json or --format csv.",
+        )
+        raise SystemExit(2)
+
+    paths = Paths.resolve()
+    events = read_events(paths.logs_dir, limit=(limit or None))
+    summary = summarize_events(events)
+
+    report_run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+    out_dir = (paths.workspace / "reports" / "metrics" / report_run_id).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / f"metrics-summary.{f}"
+
+    if f == "json":
+        write_summary_json(out_file, summary)
+    else:
+        write_summary_csv(out_file, summary)
+
+    print_cli_notice(
+        console,
+        title="Metrics Report Ready",
+        level="success",
+        message=f"Saved: {out_file}",
+        help_line=f"events_total={summary.get('events_total', 0)} | llm_used_rate={summary.get('llm_used_rate', 0.0)}",
+    )
+
+
+@dev_app.command("dashboard")
+def dev_dashboard(
+    live: bool = typer.Option(True, "--live", help="Enable auto-refresh while dashboard is open."),
+    refresh_seconds: int = typer.Option(5, "--refresh-seconds", min=1, max=60, help="Auto-refresh interval."),
+    port: int = typer.Option(8501, "--port", min=1024, max=65535, help="Dashboard port."),
+    event_limit: int = typer.Option(5000, "--event-limit", min=100, max=50000, help="Max telemetry events loaded."),
+):
+    """Launch a live Streamlit dashboard for full environment reporting."""
+    run_id = _start_end_session("dev.dashboard")
+    try:
+        paths = Paths.resolve()
+        try:
+            import streamlit  # noqa: F401
+        except Exception:
+            print_cli_notice(
+                console,
+                title="Missing Dependency",
+                level="error",
+                message="Streamlit is not installed.",
+                help_line="Install with: pip install streamlit",
+            )
+            raise SystemExit(1)
+
+        app_path = (paths.agent_root / "core" / "cg" / "dashboard_app.py").resolve()
+        policy_path = (paths.agent_root / "config" / "policy.json").resolve()
+        cmd = [
+            sys.executable,
+            "-m",
+            "streamlit",
+            "run",
+            str(app_path),
+            "--server.headless",
+            "true",
+            "--server.port",
+            str(port),
+            "--",
+            "--workspace",
+            str(paths.workspace),
+            "--logs-dir",
+            str(paths.logs_dir),
+            "--chroma-dir",
+            str(paths.chroma_dir),
+            "--policy",
+            str(policy_path),
+            "--live",
+            "1" if live else "0",
+            "--refresh-seconds",
+            str(refresh_seconds),
+            "--event-limit",
+            str(event_limit),
+        ]
+        subprocess.Popen(cmd, cwd=str(paths.agent_root))
+        url = f"http://127.0.0.1:{port}"
+        open_target(url)
+        print_cli_notice(
+            console,
+            title="Dashboard Started",
+            level="success",
+            message=f"Live dashboard available at {url}",
+            help_line=f"live={live} refresh_seconds={refresh_seconds} event_limit={event_limit}",
+        )
+    finally:
+        print_session_boundary(console, command="dev.dashboard", run_id=run_id, phase="end")
 
 
 @inspect_app.command("structure")
 def inspect_structure(
-    depth: int = typer.Option(4, "--depth", min=1, max=10, help="Tree depth (default: 4)."),
+    depth: int = typer.Option(4, "-d", min=1, max=10, help="Tree depth (default: 4)."),
 ):
     """Show solution structure from home path."""
-    _structure_once(depth)
+    structure_once(console, depth)
 
 
 @inspect_app.command("workspace")
 def inspect_workspace(
-    depth: Optional[int] = typer.Option(None, "--depth", min=1, max=10, help="Optional tree depth limit."),
+    depth: Optional[int] = typer.Option(None, "-d", min=1, max=10, help="Optional tree depth limit."),
 ):
     """Show all files under workspace."""
-    _workspace_once(depth)
+    workspace_once(console, depth)
 
 
 @inspect_app.command("outputs")
 def inspect_outputs(
-    depth: Optional[int] = typer.Option(None, "--depth", min=1, max=10, help="Optional tree depth limit."),
+    depth: Optional[int] = typer.Option(None, "-d", min=1, max=10, help="Optional tree depth limit."),
 ):
     """Show output folders (reports, logs, artifacts)."""
-    _outputs_once(depth)
+    outputs_once(console, depth)
 
 
 def cli() -> None:
     if len(sys.argv) == 2 and sys.argv[1] in {"--help", "-h"}:
-        _print_full_help()
+        print_full_help(console)
         return
     try:
         app(standalone_mode=False)
@@ -844,7 +1158,8 @@ def cli() -> None:
         m = re.search(r"No such command '([^']+)'\.", msg)
         if m:
             cmd = m.group(1)
-            _print_cli_notice(
+            print_cli_notice(
+                console,
                 title=f"Unknown Command: {cmd}",
                 level="error",
                 message=msg,
@@ -852,11 +1167,12 @@ def cli() -> None:
                 example_line='cg run "summarize workspace"',
             )
             raise SystemExit(2)
-        _print_cli_notice(
+        print_cli_notice(
+            console,
             title="Command Usage Error",
             level="error",
             message=msg,
-            help_line="Run cg --help to see available commands and options.",
+            help_line="CLI argument parsing error (no policy rule evaluated). Run cg --help for valid syntax.",
         )
         raise SystemExit(2)
     except click.exceptions.Exit as e:

@@ -49,8 +49,9 @@ class PolicyEnforcementTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             workspace = Path(td)
             executor = self._executor(workspace, mutate={"command_denylist": ["echo"]})
-            with self.assertRaises(PolicyViolation):
+            with self.assertRaises(PolicyViolation) as ctx:
                 executor.run("echo hello")
+            self.assertEqual(ctx.exception.rule, "command_denylist")
 
     def test_recursive_rm_outside_allowed_root_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as td:

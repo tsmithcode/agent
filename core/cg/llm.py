@@ -153,16 +153,26 @@ Relevant long-term memory:
 
         raw = resp.choices[0].message.content or ""
         obj = self._safe_parse(raw)
+        if not isinstance(obj, dict):
+            obj = {"answer": "(Invalid JSON shape from model.)", "plan": []}
 
         answer = str(obj.get("answer", "")).strip()
         steps_raw = obj.get("plan", []) or []
+        if not isinstance(steps_raw, list):
+            steps_raw = []
 
         steps: List[PlanStep] = []
         for s in steps_raw:
+            if not isinstance(s, dict):
+                # Ignore malformed plan entries instead of crashing.
+                continue
+            step_type = str(s.get("type", "note") or "note").strip().lower()
+            if step_type not in {"cmd", "write", "note"}:
+                step_type = "note"
             steps.append(
                 PlanStep(
-                    type=s.get("type"),
-                    value=s.get("value", ""),
+                    type=step_type,
+                    value=str(s.get("value", "")),
                     path=s.get("path"),
                 )
             )

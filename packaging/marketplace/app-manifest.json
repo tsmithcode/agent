@@ -1,0 +1,95 @@
+{
+  "manifest_version": "1.0",
+  "app_id": "cad-guardian-cli",
+  "name": "CAD Guardian",
+  "tagline": "Ask over a live runtime snapshot of codebase/workspace and run policy-controlled actions from one CLI.",
+  "version": "0.1.0",
+  "category": "Developer Tools",
+  "keywords": [
+    "ai-agent",
+    "cli",
+    "automation",
+    "policy-controlled",
+    "workspace-operations"
+  ],
+  "distribution": {
+    "type": "python-cli",
+    "entrypoint_command": "cg",
+    "install": {
+      "pipx": "pipx install cad-guardian",
+      "pip": "pip install cad-guardian",
+      "source": "pip install -e ."
+    },
+    "platforms": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "python_requires": ">=3.11"
+  },
+  "gtm": {
+    "primary_audience": [
+      "power users",
+      "technical operators",
+      "developer teams"
+    ],
+    "core_value": [
+      "Deterministic command routing for obvious tasks",
+      "LLM fallback for open-ended requests",
+      "Policy-enforced execution boundaries",
+      "Telemetry and reporting for operations review"
+    ],
+    "positioning": "Safety-first AI CLI agent for repeatable workspace automation."
+  },
+  "capabilities": {
+    "commands": [
+      "run",
+      "ask",
+      "doctor",
+      "inspect structure",
+      "inspect workspace",
+      "inspect outputs",
+      "dev snaps",
+      "dev metrics",
+      "dev dashboard"
+    ],
+    "routing_modes": [
+      "deterministic",
+      "llm"
+    ],
+    "execution_mode_support": [
+      "single_step",
+      "continue_until_done"
+    ],
+    "output_formats": [
+      "terminal",
+      "json",
+      "csv",
+      "jsonl"
+    ]
+  },
+  "policy_and_safety": {
+    "policy_file": "config/policy.json",
+    "sandbox_model": "policy-controlled command and path constraints",
+    "requires_confirmation_for_apply_style_batches": true
+  },
+  "observability": {
+    "events_log": "logs/cg_events.jsonl",
+    "metrics_reports_path": "workspace/reports/metrics",
+    "ui_snapshot_reports_path": "workspace/reports/ui-snapshots",
+    "dashboard_command": "cg dev dashboard --live"
+  },
+  "documentation": {
+    "readme": "README.md",
+    "user_docs": "docs/README.md",
+    "telemetry_schema": "docs/TELEMETRY_SCHEMA.md"
+  },
+  "support": {
+    "homepage": "https://github.com/your-org/cad-guardian",
+    "documentation_url": "https://github.com/your-org/cad-guardian/tree/main/docs",
+    "issues_url": "https://github.com/your-org/cad-guardian/issues"
+  },
+  "license": {
+    "type": "Proprietary"
+  }
+}

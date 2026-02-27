@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 from chromadb import PersistentClient
 from chromadb.utils import embedding_functions
@@ -39,7 +39,13 @@ class LongTermMemory:
         self.client = PersistentClient(path=chroma_dir)
         self.max_doc_chars = max_doc_chars
         self.max_items = max_items
-        self.prefer_kinds = prefer_kinds or ["user_profile", "preferences", "task_result", "interaction"]
+        self.prefer_kinds = prefer_kinds or [
+            "user_profile",
+            "preferences",
+            "workflow_pattern",
+            "task_result",
+            "interaction",
+        ]
 
         # If you have an API key, use OpenAI embeddings; otherwise fall back to recent-only mode.
         self.embedder = None
@@ -64,10 +70,6 @@ class LongTermMemory:
 
     def _hash_text(self, s: str) -> str:
         return hashlib.sha256(s.encode("utf-8", errors="ignore")).hexdigest()
-
-    def _safe_get(self, d: Dict[str, Any], key: str, default: Any = None) -> Any:
-        v = d.get(key, default)
-        return default if v is None else v
 
     def _dedupe_exists(self, content_hash: str) -> bool:
         # Attempt a metadata filter query by hash (fast if supported).

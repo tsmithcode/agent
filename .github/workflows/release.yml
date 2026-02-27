@@ -31,17 +31,23 @@ jobs:
 
       - name: Run tests
         run: |
-          python -m unittest -q core/tests/test_policy_enforcement.py
+          python -m unittest -v core/tests/test_policy_enforcement.py core/tests/test_router.py core/tests/test_run_routing_e2e.py core/tests/test_cli_snapshots.py core/tests/test_telemetry.py
 
       - name: Build package
         run: |
           python -m build
 
+      - name: Generate marketplace manifests
+        run: |
+          python packaging/marketplace/build_release_manifest.py --release-ref "${{ github.sha }}"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: dist-py${{ matrix.python-version }}
-          path: dist/*
+          path: |
+            dist/*
+            packaging/marketplace/dist/*.json
 
   publish-pypi:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -62,6 +68,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip build
           python -m build
+
+      - name: Generate marketplace manifests
+        run: |
+          python packaging/marketplace/build_release_manifest.py --release-ref "${{ github.ref }}"
+
+      - name: Upload release manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketplace-manifests
+          path: packaging/marketplace/dist/*.json
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
