@@ -14,6 +14,7 @@ SNAP_DIR = Path(__file__).resolve().parent / "snapshots"
 
 def _normalize(text: str) -> str:
     text = text.replace("\r\n", "\n")
+    text = re.sub(r"context_chars=\d+", "context_chars=<dynamic>", text)
     text = re.sub(r"\s+$", "", text, flags=re.MULTILINE)
     return text.strip() + "\n"
 
@@ -43,7 +44,7 @@ class CliSnapshotTests(unittest.TestCase):
                 title="Command Required",
                 level="warning",
                 message="Select a command to continue.",
-                usage_line='cg run "<prompt>" [--full-output]  (or: cg ask "<question>")',
+                usage_line='cg run "<prompt>" [--full]  (or: cg ask "<question>")',
                 help_line="Run cg --help to see available commands and options.",
                 example_line='cg run "summarize workspace"',
             )
@@ -111,6 +112,43 @@ class CliSnapshotTests(unittest.TestCase):
             text = _snapshot_text(lambda: main_mod._ask_once(question))
 
         self._assert_snapshot("ask_static_question", text)
+
+    def test_run_static_prompt_snapshot(self) -> None:
+        prompt = "Check project files"
+
+        class FakeMemory:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def query(self, *args, **kwargs):
+                return []
+
+            def add(self, *args, **kwargs):
+                return None
+
+        class FakeLLM:
+            def __init__(self, api_key: str):
+                self.api_key = api_key
+
+            def ask(self, *args, **kwargs):
+                step = type("Step", (), {"type": "note", "value": "User can execute a script to list project files."})()
+                return type(
+                    "Reply",
+                    (),
+                    {
+                        "answer": "I cannot directly check project files. You may want to list them via a script.",
+                        "plan": [step],
+                    },
+                )()
+
+        with (
+            patch.dict(os.environ, {"OPENAI_API_KEY": "snapshot-test-key"}, clear=False),
+            patch.object(main_mod, "LongTermMemory", FakeMemory),
+            patch.object(main_mod, "LLM", FakeLLM),
+        ):
+            text = _snapshot_text(lambda: main_mod._run_once(prompt))
+
+        self._assert_snapshot("run_static_prompt", text)
 
 
 if __name__ == "__main__":

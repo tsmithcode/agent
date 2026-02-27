@@ -37,7 +37,7 @@ cg snapshot-tests
 ```bash
 cg ask "What does this app do right now?"
 cg run "List project files"
-cg run "List project files" --full-output
+cg run "List project files" --full
 cg snapshot-tests
 ```
 

@@ -80,7 +80,7 @@ cd /home/cg-ai/agent/core
 5. If you want full output (no display truncation):
 
 ```bash
-./cg.sh run "Check project files" --full-output
+./cg.sh run "Check project files" --full
 ```
 
 ## Command Reference
@@ -88,7 +88,7 @@ cd /home/cg-ai/agent/core
 | Command | What it does | Example |
 |---|---|---|
 | `cg run "<prompt>"` | Runs one agent request | `cg run "List files"` |
-| `cg run "<prompt>" --full-output` | Same, but shows full answer/stdout/stderr | `cg run "Run tests" --full-output` |
+| `cg run "<prompt>" --full` | Same, but shows full answer/stdout/stderr | `cg run "Run tests" --full` |
 | `cg ask "<question>"` | Read-only chat about current source/workspace state | `cg ask "What does main.py do?"` |
 | `cg doctor` | Runs setup and environment diagnostics | `cg doctor` |
 | `cg snapshot-tests` | Runs UI snapshot tests, saves report in workspace, opens/fallback previews report | `cg snapshot-tests` |
@@ -133,16 +133,16 @@ Your policy file is at:
 | Key | Meaning |
 |---|---|
 | `max_runtime_seconds` | Max seconds per command |
-| `max_output_chars` | Max chars shown for stdout/stderr unless `--full-output` |
+| `max_output_chars` | Max chars shown for stdout/stderr unless `--full` |
 | `max_file_write_bytes` | Max bytes for one file write |
 | `max_steps_per_plan` | Max AI plan steps kept |
 | `max_completion_tokens` | Hard cap for model output tokens |
 | `max_memory_items` | How many memory items are sent into prompt |
 | `max_memory_chars` | Max memory text chars sent into prompt |
-| `max_answer_chars` | Max answer chars shown unless `--full-output` |
-| `max_answer_lines` | Max answer lines shown unless `--full-output` |
-| `max_stdout_lines` | Max stdout lines shown unless `--full-output` |
-| `max_stderr_lines` | Max stderr lines shown unless `--full-output` |
+| `max_answer_chars` | Max answer chars shown unless `--full` |
+| `max_answer_lines` | Max answer lines shown unless `--full` |
+| `max_stdout_lines` | Max stdout lines shown unless `--full` |
+| `max_stderr_lines` | Max stderr lines shown unless `--full` |
 | `execution_mode` | `single_step` or `continue_until_done` |
 | `max_actions_per_run` | Max actionable steps executed in one run |
 
@@ -203,7 +203,7 @@ The AI must return one JSON object:
 | `LLM ERROR Connection error` | Check internet/DNS and outbound access to `api.openai.com` |
 | Command blocked | Check `command_allowlist`, `command_denylist`, and safety controls |
 | Path blocked | Check `allowed_*_roots` and `denied_paths` |
-| Too little output | Use `--full-output` or raise output limits |
+| Too little output | Use `--full` or raise output limits |
 | Too expensive | Lower `max_completion_tokens`, `max_memory_items`, `max_memory_chars` |
 
 ## Safe Defaults for Power Users
@@ -212,7 +212,7 @@ If you want useful but controlled behavior:
 
 - Keep `execution_mode = "single_step"` while testing
 - Keep `max_actions_per_run = 1` until confident
-- Use `--full-output` only when debugging
+- Use `--full` only when debugging
 - Start with low `max_completion_tokens` and raise gradually
 
 ## For Developers: Where to Add Features

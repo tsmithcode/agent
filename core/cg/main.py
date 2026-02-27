@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from .executor import Executor, PolicyViolation
 from .llm import LLM
@@ -86,13 +87,13 @@ def _print_full_help() -> None:
     table.add_row(
         "cg run",
         "PROMPT",
-        "--full-output",
+        "--full",
         "Run agent plan and execute actionable steps under policy.",
     )
     table.add_row(
         "cg ask",
         "QUESTION",
-        "--full-output, --context",
+        "--full, --context",
         "Read-only Q&A using source/workspace snapshot and memory.",
     )
     table.add_row(
@@ -119,7 +120,7 @@ def _print_full_help() -> None:
         Panel(
             "Examples:\n"
             "  cg run \"List files in workspace\"\n"
-            "  cg run \"Run tests\" --full-output\n"
+            "  cg run \"Run tests\" --full\n"
             "  cg ask \"What does this app do?\" --context\n"
             "  cg doctor\n"
             "  cg snapshot-tests",
@@ -205,33 +206,12 @@ def _collect_paths(root: Path, *, max_files: int) -> list[str]:
     return out
 
 
-def _read_preview(path: Path, *, max_chars: int) -> str:
-    try:
-        txt = path.read_text(encoding="utf-8", errors="ignore")
-    except Exception:
-        return "(unreadable)"
-    return txt if len(txt) <= max_chars else txt[:max_chars] + "...(truncated)"
-
-
 def _collect_runtime_snapshot(paths: Paths, policy: Policy) -> str:
     max_files = max(20, policy.max_context_files())
-    per_file_chars = max(200, policy.max_context_file_chars())
     max_chars = max(1500, policy.max_context_chars())
 
     tree_lines = _collect_paths(paths.agent_root, max_files=max_files)
     blocks = ["Project file sample:\n" + "\n".join(f"- {p}" for p in tree_lines)]
-
-    key_files = [
-        paths.agent_root / "README.md",
-        paths.agent_root / "docs" / "README.md",
-        paths.agent_root / "config" / "policy.json",
-        paths.agent_root / "core" / "cg" / "main.py",
-        paths.agent_root / "core" / "cg" / "policy.py",
-        paths.agent_root / "core" / "cg" / "executor.py",
-    ]
-    for fp in key_files:
-        if fp.exists():
-            blocks.append(f"File preview: {fp}\n{_read_preview(fp, max_chars=per_file_chars)}")
 
     if policy.include_git_status():
         try:
@@ -281,7 +261,7 @@ def _execute_step(
             )
             console.print(Panel(out, title="stdout", expand=False))
             if truncated:
-                console.print("[yellow]stdout truncated[/yellow] Use [bold]--full-output[/bold] to view full output.")
+                console.print("[yellow]stdout truncated[/yellow] Use [bold]--full[/bold] to view full output.")
         if show_output and res.stderr.strip():
             err, truncated = _truncate_for_display(
                 res.stderr,
@@ -291,7 +271,7 @@ def _execute_step(
             )
             console.print(Panel(err, title="stderr", expand=False))
             if truncated:
-                console.print("[yellow]stderr truncated[/yellow] Use [bold]--full-output[/bold] to view full output.")
+                console.print("[yellow]stderr truncated[/yellow] Use [bold]--full[/bold] to view full output.")
         console.print(f"[green]Run complete[/green] executed=cmd ok={res.ok} exit_code={res.exit_code}")
         return res.ok
 
@@ -392,7 +372,7 @@ def _run_once(prompt: str, *, full_output: bool = False) -> None:
     )
     console.print(Panel(answer_display, title="Answer", expand=False))
     if answer_truncated:
-        console.print("[yellow]Answer truncated[/yellow] Use [bold]--full-output[/bold] or raise answer limits in policy.")
+        console.print("[yellow]Answer truncated[/yellow] Use [bold]--full[/bold] or raise answer limits in policy.")
 
     memory.add(
         mem_id=str(uuid.uuid4()),
@@ -441,14 +421,14 @@ def _run_once(prompt: str, *, full_output: bool = False) -> None:
                     title="Execution Stopped",
                     level="warning",
                     message="A command failed; stopping remaining steps.",
-                    help_line="Re-run with --full-output to inspect stdout/stderr, then retry.",
+                    help_line="Re-run with --full to inspect stdout/stderr, then retry.",
                 )
                 break
         except PolicyViolation as e:
             _print_runtime_error("Policy Violation", e, "Review policy allow/deny settings and requested operation.")
             break
         except Exception as e:
-            _print_runtime_error("Execution Error", e, "Re-run with --full-output and inspect command/output details.")
+            _print_runtime_error("Execution Error", e, "Re-run with --full and inspect command/output details.")
             break
 
     if mode == "single_step" and len(actionable) > 1:
@@ -496,7 +476,7 @@ def _ask_once(question: str, *, full_output: bool = False, context: bool = False
 
     if context:
         preview = _cap_chars(context_text, 12000, full_output=full_output)
-        console.print(Panel(preview, title="Ask Context", expand=False))
+        console.print(Panel(Text(preview), title="Ask Context", expand=False))
 
     console.print(
         Panel(
@@ -532,7 +512,7 @@ def _ask_once(question: str, *, full_output: bool = False, context: bool = False
     )
     console.print(Panel(answer_display, title="Insight Answer", expand=False))
     if answer_truncated:
-        console.print("[yellow]Insight answer truncated[/yellow] Use [bold]--full-output[/bold] for full response.")
+        console.print("[yellow]Insight answer truncated[/yellow] Use [bold]--full[/bold] for full response.")
 
     memory.add(
         mem_id=str(uuid.uuid4()),
@@ -677,7 +657,7 @@ def main(ctx: typer.Context):
         title="Command Required",
         level="warning",
         message="Select a command to continue.",
-        usage_line='cg run "<prompt>" [--full-output]  (or: cg ask "<question>")',
+        usage_line='cg run "<prompt>" [--full]  (or: cg ask "<question>")',
         help_line="Run cg --help to see available commands and options.",
         example_line='cg run "summarize workspace"',
     )
@@ -687,7 +667,7 @@ def main(ctx: typer.Context):
 @app.command("run")
 def run(
     prompt: str = typer.Argument(..., help="Prompt to run."),
-    full_output: bool = typer.Option(False, "--full-output", help="Disable output truncation for answer/stdout/stderr."),
+    full_output: bool = typer.Option(False, "--full", help="Disable output truncation for answer/stdout/stderr."),
 ):
     """Run CAD Guardian Agent with a prompt."""
     _run_once(prompt, full_output=full_output)
@@ -696,7 +676,7 @@ def run(
 @app.command("ask")
 def ask(
     question: str = typer.Argument(..., help="Question about the current project state."),
-    full_output: bool = typer.Option(False, "--full-output", help="Disable answer truncation."),
+    full_output: bool = typer.Option(False, "--full", help="Disable answer truncation."),
     context: bool = typer.Option(False, "--context", help="Show the context payload sent to the model."),
 ):
     """Read-only Q&A over current source/workspace state."""
