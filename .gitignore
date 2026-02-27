@@ -18,6 +18,13 @@ dist/
 build/
 *.egg-info/
 
+# Runtime/output data
+workspace/
+exports/
+logs/
+memory/
+models/
+
 # OS/editor noise
 .DS_Store
 .vscode/
