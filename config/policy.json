@@ -1,0 +1,109 @@
+{
+  "allowed_write_roots": [
+    "/home/cg-ai/agent/workspace"
+  ],
+  "allowed_read_roots": [
+    "/home/cg-ai/agent/workspace"
+  ],
+  "denied_paths": [
+    "/etc",
+    "/bin",
+    "/sbin",
+    "/usr",
+    "/boot",
+    "/root",
+    "/dev",
+    "/proc",
+    "/sys",
+    "/run"
+  ],
+  "command_allowlist": [
+    "ls",
+    "pwd",
+    "whoami",
+    "id",
+    "uname",
+    "cat",
+    "head",
+    "tail",
+    "mkdir",
+    "touch",
+    "cp",
+    "mv",
+    "rm",
+    "find",
+    "grep",
+    "sed",
+    "awk",
+    "git",
+    "python3",
+    "pip3",
+    "curl",
+    "wget",
+    "echo"
+  ],
+  "command_denylist": [
+    "sudo",
+    "su",
+    "ssh",
+    "scp",
+    "mount",
+    "umount",
+    "dd",
+    "mkfs",
+    "fdisk",
+    "parted",
+    "systemctl",
+    "shutdown",
+    "reboot"
+  ],
+  "destructive_command_controls": {
+    "deny_patterns": [
+      "rm -rf /",
+      "rm -rf /*",
+      "rm -rf ~",
+      "rm -rf $HOME"
+    ],
+    "rm_rules": {
+      "deny_recursive": false,
+      "allow_recursive_only_under": [
+        "/home/cg-ai/agent/workspace"
+      ]
+    }
+  },
+  "git_controls": {
+    "deny_push": false,
+    "deny_force": true,
+    "deny_remote_add": false
+  },
+  "network_controls": {
+    "allow_outbound_http": true,
+    "allow_domains": [
+      "api.openai.com",
+      "pypi.org",
+      "files.pythonhosted.org",
+      "github.com",
+      "raw.githubusercontent.com",
+      "registry.npmjs.org"
+    ]
+  },
+  "execution_limits": {
+    "max_runtime_seconds": 180,
+    "max_output_chars": 3000,
+    "max_file_write_bytes": 5000000,
+    "max_steps_per_plan": 20,
+    "max_completion_tokens": 700,
+    "max_memory_items": 3,
+    "max_memory_chars": 3000,
+    "max_answer_chars": 2500,
+    "max_answer_lines": 6,
+    "max_stdout_lines": 20,
+    "max_stderr_lines": 20,
+    "max_context_files": 200,
+    "max_context_file_chars": 1200,
+    "max_context_chars": 12000,
+    "include_git_status": true,
+    "execution_mode": "single_step",
+    "max_actions_per_run": 1
+  }
+}

@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cad-guardian"
+version = "0.1.0"
+description = "Policy-controlled AI CLI agent for power users"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "CAD Guardian" }]
+license = { text = "Proprietary" }
+keywords = ["ai", "agent", "cli", "automation", "policy", "developer-tools"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Build Tools",
+]
+dependencies = [
+  "typer>=0.12",
+  "rich>=13.7",
+  "python-dotenv>=1.0",
+  "openai>=1.0",
+  "chromadb>=0.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-org/cad-guardian"
+Documentation = "https://github.com/your-org/cad-guardian/tree/main/docs"
+Issues = "https://github.com/your-org/cad-guardian/issues"
+
+[project.scripts]
+cg = "cg.main:cli"
+
+[tool.setuptools]
+package-dir = {"" = "core"}
+
+[tool.setuptools.packages.find]
+where = ["core"]
+include = ["cg*"]
+exclude = ["tests*"]
