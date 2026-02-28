@@ -11,6 +11,7 @@ It helps you:
 - Run safe, policy-governed actions (`cg run`) with deterministic auto-routing for obvious tasks
 - Keep token/runtime costs bounded with explicit execution limits
 - Optional plugins toggle advanced features (dashboard, evals, snapshots, metrics, tasks, Drive fetch) via `config/plugins.json`
+- Delivery guide: `docs/DELIVERY_GUIDE.md` (release, install, update flow)
 
 ## Install
 

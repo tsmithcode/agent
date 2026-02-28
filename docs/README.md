@@ -23,6 +23,7 @@ Core product intent:
 - Run policy-controlled actions from one CLI
 - Keep costs bounded with explicit execution limits
 - Toggle advanced plugins (dashboard, evals, snapshots, metrics, tasks, Drive fetch) via `config/plugins.json`
+- Delivery guide for release/install/update: `docs/DELIVERY_GUIDE.md`
 
 ## Before You Start
 
