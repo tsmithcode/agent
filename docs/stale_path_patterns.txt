@@ -1,0 +1,15 @@
+# Legacy paths that should not appear in docs after refactor
+core/cg/dashboard_app.py
+core/cg/dashboard_data.py
+core/cg/cli_ui.py
+core/cg/main.py
+core/cg/router.py
+core/cg/tool_registry.py
+core/cg/policy.py
+core/cg/executor.py
+core/cg/telemetry.py
+core/cg/doctor.py
+core/cg/inspect_ops.py
+core/cg/runtime_ask.py
+core/cg/runtime_run.py
+core/cg/runtime_common.py

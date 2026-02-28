@@ -291,18 +291,59 @@ def register_groups(
             run_id = start_end_session("dev.dashboard")
             try:
                 paths = Paths.resolve()
+                app_path = (paths.agent_root / "core" / "cg" / "addons" / "dashboard_app.py").resolve()
+                legacy_app_path = (paths.agent_root / "core" / "cg" / "dashboard_app.py").resolve()
+                kill_patterns = [str(app_path), str(legacy_app_path), r"streamlit run .*dashboard_app.py"]
+                killed_any = False
+                for pattern in kill_patterns:
+                    restart_probe = subprocess.run(
+                        ["pkill", "-f", pattern],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if restart_probe.returncode == 0:
+                        killed_any = True
+                if killed_any:
+                    print_cli_notice(
+                        console,
+                        title="Dashboard Restart",
+                        level="warning",
+                        message="Existing dashboard process detected and restarted.",
+                        help_line=f"port={port}",
+                    )
+                    time.sleep(0.4)
                 try:
                     import streamlit  # noqa: F401
                 except Exception:
                     print_cli_notice(console, title="Missing Dependency", level="error", message="Streamlit is not installed.", help_line="Install with: pip install streamlit")
                     raise SystemExit(1)
-                app_path = (paths.agent_root / "core" / "cg" / "addons" / "dashboard_app.py").resolve()
                 policy_path = (paths.agent_root / "config" / "policy.json").resolve()
                 cmd = [sys.executable, "-m", "streamlit", "run", str(app_path), "--server.headless", "true", "--server.port", str(port), "--", "--workspace", str(paths.workspace), "--logs-dir", str(paths.logs_dir), "--chroma-dir", str(paths.chroma_dir), "--policy", str(policy_path), "--live", "1" if live else "0", "--refresh-seconds", str(refresh_seconds), "--event-limit", str(event_limit)]
-                subprocess.Popen(cmd, cwd=str(paths.agent_root))
+                dashboard_log = (paths.logs_dir / "dashboard.log").resolve()
+                dashboard_log.parent.mkdir(parents=True, exist_ok=True)
+                with dashboard_log.open("ab") as log_fh:
+                    proc = subprocess.Popen(
+                        cmd,
+                        cwd=str(paths.agent_root),
+                        stdout=log_fh,
+                        stderr=log_fh,
+                        start_new_session=True,
+                    )
+                time.sleep(1.0)
+                if proc.poll() is not None:
+                    print_cli_notice(
+                        console,
+                        title="Dashboard Failed to Start",
+                        level="error",
+                        message=f"Dashboard process exited immediately on port {port}.",
+                        help_line=f"Check log: {dashboard_log}",
+                        example_line=f"cg dev dashboard --port {port + 1}",
+                    )
+                    raise SystemExit(1)
                 url = f"http://127.0.0.1:{port}"
                 open_target(url)
-                print_cli_notice(console, title="Dashboard Started", level="success", message=f"Live dashboard available at {url}", help_line=f"live={live} refresh_seconds={refresh_seconds} event_limit={event_limit}")
+                print_cli_notice(console, title="Dashboard Started", level="success", message=f"Live dashboard available at {url}", help_line=f"live={live} refresh_seconds={refresh_seconds} event_limit={event_limit} | log={dashboard_log}")
             finally:
                 print_session_boundary(console, command="dev.dashboard", run_id=run_id, phase="end")
 

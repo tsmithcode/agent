@@ -39,6 +39,7 @@ git push origin main --tags
 The workflow `.github/workflows/release.yml` will:
 
 - Run tests
+- Run docs QA checks (`docs/check_docs.py`)
 - Build full wheel/sdist
 - Build core profile wheel/sdist (`CG_BUILD_PROFILE=core`)
 - Generate marketplace manifests
@@ -131,6 +132,7 @@ brew install cad-guardian
 Customer should run:
 
 ```bash
+python docs/check_docs.py
 cg setup
 cg doctor
 cg do "show files"

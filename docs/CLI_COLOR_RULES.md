@@ -26,7 +26,7 @@ Use this guide for consistent, accessible CLI styling.
 
 ## Where Implemented
 
-- `agent/core/cg/cli_ui.py`
+- `agent/core/cg/cli/ui/cli_ui.py`
   - `COLOR_RULES`
   - `print_cli_notice`
   - `print_status_line`

@@ -85,7 +85,7 @@ Use it for:
 
 ### CLI references
 
-- `agent/core/cg/cli_ui.py`
+- `agent/core/cg/cli/ui/cli_ui.py`
 - `agent/docs/CLI_COLOR_RULES.md`
 
 ## 5. Dashboard Design Standards
@@ -121,8 +121,8 @@ Use it for:
 
 ### Dashboard references
 
-- `agent/core/cg/dashboard_app.py`
-- `agent/core/cg/dashboard_data.py`
+- `agent/core/cg/addons/dashboard_app.py`
+- `agent/core/cg/addons/dashboard_data.py`
 
 ## 6. Accessibility Requirements
 

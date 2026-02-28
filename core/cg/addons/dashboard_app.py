@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 from pathlib import Path
 
@@ -21,11 +22,11 @@ try:
 except ModuleNotFoundError as e:
     if e.name != "cg":
         raise
-    root = Path(__file__).resolve().parents[1]
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
-    from data.env import get_openai_api_key, load_project_dotenv  # type: ignore
-    from addons.dashboard_data import (  # type: ignore
+    core_root = Path(__file__).resolve().parents[2]
+    if str(core_root) not in sys.path:
+        sys.path.insert(0, str(core_root))
+    from cg.data.env import get_openai_api_key, load_project_dotenv  # type: ignore
+    from cg.addons.dashboard_data import (  # type: ignore
         load_event_overview,
         load_memory_overview,
         load_policy_overview,
@@ -289,8 +290,77 @@ def _to_df(rows: list[dict[str, object]] | dict[str, object] | list[object] | No
     return pd.DataFrame([{"value": rows}])
 
 
+def _to_mb(size_bytes: object) -> str:
+    try:
+        size = float(size_bytes)
+    except (TypeError, ValueError):
+        return str(size_bytes)
+    return f"{(size / (1024 * 1024)):,.2f} MB"
+
+
+def _humanize_key(name: object) -> str:
+    raw = str(name or "")
+    overrides = {
+        "ts_utc": "Timestamp (UTC)",
+        "oldest_ts_utc": "Oldest Timestamp (UTC)",
+        "newest_ts_utc": "Newest Timestamp (UTC)",
+        "duration_ms": "Duration (ms)",
+        "llm_used": "LLM Used",
+        "size_mb": "Size (MB)",
+    }
+    if raw in overrides:
+        return overrides[raw]
+    return raw.replace("_", " ").strip().title()
+
+
+def _humanize_value(key: str, value: object) -> object:
+    if value is None:
+        return ""
+    key_l = key.lower()
+    if key_l in {"bytes", "bytes_total"}:
+        return _to_mb(value)
+    if key_l.endswith("_ms"):
+        try:
+            return f"{int(value):,} ms"
+        except (TypeError, ValueError):
+            return str(value)
+    if key_l == "llm_used" and isinstance(value, bool):
+        return "Yes" if value else "No"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return f"{value:,}"
+    return value
+
+
+def _humanize_dict_for_json(data: dict[str, object]) -> dict[str, object]:
+    out: dict[str, object] = {}
+    for key, value in data.items():
+        if isinstance(value, dict):
+            out[_humanize_key(key)] = _humanize_dict_for_json(value)
+            continue
+        if isinstance(value, list):
+            out[_humanize_key(key)] = [(_humanize_dict_for_json(v) if isinstance(v, dict) else v) for v in value]
+            continue
+        out[_humanize_key(key)] = _humanize_value(str(key), value)
+    return out
+
+
+def _largest_files_rows_with_units(rows: list[dict[str, object]] | None) -> list[dict[str, object]]:
+    out: list[dict[str, object]] = []
+    for row in rows or []:
+        formatted = dict(row)
+        if "bytes" in formatted:
+            formatted["size_mb"] = _to_mb(formatted.pop("bytes"))
+        out.append(formatted)
+    return out
+
+
 def _show_scroll_table(rows: list[dict[str, object]] | dict[str, object] | list[object] | None, *, height: int) -> None:
-    df = _to_df(rows)
+    df = _to_df(rows).copy()
+    if not df.empty:
+        source_columns = list(df.columns)
+        for col in source_columns:
+            df[col] = df[col].map(lambda v, k=str(col): _humanize_value(k, v))
+        df = df.rename(columns={col: _humanize_key(col) for col in source_columns})
     st.dataframe(df, use_container_width=True, height=height, hide_index=True)
 
 
@@ -317,6 +387,7 @@ def main() -> None:
     _inject_brand_theme()
     st.title("CAD Guardian Live Dashboard")
     st.caption("Telemetry + memory + workspace + policy + report health")
+    st.caption("Ownership: CAD Guardian brand product.")
 
     _autorefresh(live, refresh_seconds)
     if live:
@@ -337,11 +408,11 @@ def main() -> None:
 
     summary = event_data["summary"]
     kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
-    kpi1.metric("Events", int(summary.get("events_total", 0)))
+    kpi1.metric("Events", f"{int(summary.get('events_total', 0)):,}")
     kpi2.metric("LLM Used Rate", f"{float(summary.get('llm_used_rate', 0.0)) * 100:.1f}%")
-    kpi3.metric("Memory Items", int(mem_data.get("items_total", 0)))
-    kpi4.metric("Workspace Files", int(ws_data.get("files_total", 0)))
-    kpi5.metric("Render ms", elapsed)
+    kpi3.metric("Memory Items", f"{int(mem_data.get('items_total', 0)):,}")
+    kpi4.metric("Workspace Files", f"{int(ws_data.get('files_total', 0)):,}")
+    kpi5.metric("Render Time", f"{elapsed:,} ms")
 
     st.subheader("Route and Outcome")
     route_data = event_data["route_distribution"]
@@ -409,13 +480,15 @@ def main() -> None:
         use_container_width=True,
     )
     m2.json(
-        {
-            "items_total": mem_data.get("items_total"),
-            "oldest_ts_utc": mem_data.get("oldest_ts_utc"),
-            "newest_ts_utc": mem_data.get("newest_ts_utc"),
-            "status": mem_data.get("status"),
-            "error": mem_data.get("error"),
-        }
+        _humanize_dict_for_json(
+            {
+                "items_total": mem_data.get("items_total"),
+                "oldest_ts_utc": mem_data.get("oldest_ts_utc"),
+                "newest_ts_utc": mem_data.get("newest_ts_utc"),
+                "status": mem_data.get("status"),
+                "error": mem_data.get("error"),
+            }
+        )
     )
     st.write("Recent Memory Items")
     _show_scroll_table(mem_data.get("latest_items") or [], height=320)
@@ -435,53 +508,64 @@ def main() -> None:
     st.subheader("Workspace Health")
     w1, w2 = st.columns(2)
     w1.json(
-        {
-            "files_total": ws_data.get("files_total"),
-            "dirs_total": ws_data.get("dirs_total"),
-            "bytes_total": ws_data.get("bytes_total"),
-            "changed_last_24h_total": ws_data.get("changed_last_24h_total"),
-        }
+        _humanize_dict_for_json(
+            {
+                "files_total": ws_data.get("files_total"),
+                "dirs_total": ws_data.get("dirs_total"),
+                "bytes_total": ws_data.get("bytes_total"),
+                "changed_last_24h_total": ws_data.get("changed_last_24h_total"),
+            }
+        )
     )
     w2.write("Top Extensions")
     with w2:
         _show_scroll_table(ws_data.get("top_extensions") or [], height=300)
     st.write("Largest Files")
-    _show_scroll_table(ws_data.get("largest_files") or [], height=320)
+    _show_scroll_table(_largest_files_rows_with_units(ws_data.get("largest_files") or []), height=320)
 
     st.subheader("Policy Posture")
     p1, p2 = st.columns(2)
     p1.json(
-        {
-            "command_allowlist_count": policy_data.get("command_allowlist_count"),
-            "command_denylist_count": policy_data.get("command_denylist_count"),
-            "denied_paths_count": policy_data.get("denied_paths_count"),
-            "routing_controls": policy_data.get("routing_controls"),
-        }
+        _humanize_dict_for_json(
+            {
+                "command_allowlist_count": policy_data.get("command_allowlist_count"),
+                "command_denylist_count": policy_data.get("command_denylist_count"),
+                "denied_paths_count": policy_data.get("denied_paths_count"),
+                "routing_controls": policy_data.get("routing_controls"),
+            }
+        )
     )
     p2.json(
-        {
-            "execution_limits": policy_data.get("execution_limits"),
-            "network_controls": policy_data.get("network_controls"),
-        }
+        _humanize_dict_for_json(
+            {
+                "execution_limits": policy_data.get("execution_limits"),
+                "network_controls": policy_data.get("network_controls"),
+            }
+        )
     )
 
     st.subheader("Report Artifacts")
     r1, r2 = st.columns(2)
     r1.json(
-        {
-            "ui_snapshot_runs_total": rep_data.get("ui_snapshot_runs_total"),
-            "ui_snapshot_runs_latest": rep_data.get("ui_snapshot_runs_latest"),
-        }
+        _humanize_dict_for_json(
+            {
+                "ui_snapshot_runs_total": rep_data.get("ui_snapshot_runs_total"),
+                "ui_snapshot_runs_latest": rep_data.get("ui_snapshot_runs_latest"),
+            }
+        )
     )
     r2.json(
-        {
-            "metrics_runs_total": rep_data.get("metrics_runs_total"),
-            "metrics_runs_latest": rep_data.get("metrics_runs_latest"),
-        }
+        _humanize_dict_for_json(
+            {
+                "metrics_runs_total": rep_data.get("metrics_runs_total"),
+                "metrics_runs_latest": rep_data.get("metrics_runs_latest"),
+            }
+        )
     )
 
     st.subheader("Latest Events")
     _show_scroll_table(event_data.get("latest_events") or [], height=360)
+    st.caption("CAD Guardian | Product ownership: CAD Guardian brand.")
 
 
 if __name__ == "__main__":

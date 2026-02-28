@@ -8,14 +8,14 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from ..observability.telemetry import read_events, summarize_events
-except ImportError as e:
-    if "attempted relative import with no known parent package" not in str(e):
+    from cg.observability.telemetry import read_events, summarize_events
+except ModuleNotFoundError as e:
+    if e.name != "cg":
         raise
-    root = Path(__file__).resolve().parents[1]
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
-    from observability.telemetry import read_events, summarize_events  # type: ignore
+    core_root = Path(__file__).resolve().parents[2]
+    if str(core_root) not in sys.path:
+        sys.path.insert(0, str(core_root))
+    from cg.observability.telemetry import read_events, summarize_events  # type: ignore
 
 
 def _parse_ts(ts: str) -> datetime | None:
@@ -277,14 +277,14 @@ def summarize_user_goal_from_memories(
         chunks = _chunk_lines(lines, max_chars=max(2000, max_context_chars_per_chunk))
 
         try:
-            from ..runtime.llm import LLM
-        except ImportError as e:
-            if "attempted relative import with no known parent package" not in str(e):
+            from cg.runtime.llm import LLM
+        except ModuleNotFoundError as e:
+            if e.name != "cg":
                 raise
-            root = Path(__file__).resolve().parents[1]
-            if str(root) not in sys.path:
-                sys.path.insert(0, str(root))
-            from runtime.llm import LLM  # type: ignore
+            core_root = Path(__file__).resolve().parents[2]
+            if str(core_root) not in sys.path:
+                sys.path.insert(0, str(core_root))
+            from cg.runtime.llm import LLM  # type: ignore
 
         llm = LLM(api_key=openai_api_key.strip())
         chunk_summaries: list[str] = []

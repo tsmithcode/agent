@@ -13,6 +13,7 @@ from ...routing.router import RouteDecision
 from ...safety.plugins import plugin_enabled
 
 _PATH_RE = re.compile(r"(?P<path>(?:~|\.{1,2}|/)[A-Za-z0-9._/\-]+|[A-Za-z0-9._-]+/[A-Za-z0-9._/\-]+)")
+_URL_RE = re.compile(r"(?P<url>https?://[^\s]+)")
 COLOR_RULES = {
     "section_header": "bold #a78bfa",  # brand purple
     "error": "bold #f87171",
@@ -56,6 +57,9 @@ def _resolve_path(candidate: str, *, base_dir: Path) -> Path | None:
 
 
 def _linkify_line(line: str, *, base_dir: Path) -> Text:
+    def _url_style(url: str) -> str:
+        return f"{COLOR_RULES['info']} underline link {url}"
+
     def _path_style(candidate: str, path_obj: Path) -> str:
         is_dir_hint = candidate.endswith("/")
         is_dir_real = False
@@ -73,15 +77,36 @@ def _linkify_line(line: str, *, base_dir: Path) -> Text:
 
     out = Text()
     idx = 0
+    taken: list[tuple[int, int]] = []
+    matches: list[tuple[int, int, str, str]] = []
+
+    for m in _URL_RE.finditer(line):
+        start, end = m.span("url")
+        url = m.group("url")
+        matches.append((start, end, url, _url_style(url)))
+        taken.append((start, end))
+
+    def _overlaps_taken(start: int, end: int) -> bool:
+        return any(not (end <= s or start >= e) for s, e in taken)
+
     for m in _PATH_RE.finditer(line):
         start, end = m.span("path")
+        if _overlaps_taken(start, end):
+            continue
         cand = m.group("path")
         path_obj = _resolve_path(cand, base_dir=base_dir)
         if path_obj is None:
             continue
+        matches.append((start, end, cand, _path_style(cand, path_obj)))
+
+    matches.sort(key=lambda x: x[0])
+    for start, end, token, style in matches:
+        if start < idx:
+            continue
         out.append(line[idx:start])
-        out.append(cand, style=_path_style(cand, path_obj))
+        out.append(token, style=style)
         idx = end
+
     out.append(line[idx:])
     return out
 
@@ -338,6 +363,12 @@ def print_full_help(console: Console, *, plugins: dict[str, bool] | None = None)
                 "Start:\n"
                 "- cg dev dashboard --live --refresh-seconds 5 --port 8501\n"
                 "Stop (background process):\n"
-                "- pkill -f \"streamlit run .*addons/dashboard_app.py\""
+                "- pkill -f \"streamlit run .*dashboard_app.py\""
             ),
         )
+
+    print_section(
+        console,
+        title="Ownership",
+        body="CAD Guardian is a CAD Guardian brand product.",
+    )
