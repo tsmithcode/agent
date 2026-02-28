@@ -5,24 +5,29 @@ import time
 from pathlib import Path
 
 import altair as alt
+import pandas as pd
 import streamlit as st
 
 try:
+    from cg.env import get_openai_api_key, load_project_dotenv
     from cg.dashboard_data import (
         load_event_overview,
         load_memory_overview,
         load_policy_overview,
         load_reports_overview,
+        summarize_user_goal_from_memories,
         load_workspace_overview,
     )
 except ModuleNotFoundError as e:
     if e.name != "cg":
         raise
+    from env import get_openai_api_key, load_project_dotenv  # type: ignore
     from dashboard_data import (  # type: ignore
         load_event_overview,
         load_memory_overview,
         load_policy_overview,
         load_reports_overview,
+        summarize_user_goal_from_memories,
         load_workspace_overview,
     )
 
@@ -127,10 +132,29 @@ def _inject_brand_theme() -> None:
           background: var(--cad-card) !important;
           border: 1px solid var(--cad-border) !important;
           border-radius: 10px !important;
+          overflow: hidden !important;
         }
         [data-testid="stDataFrame"] * {
           color: var(--cad-text) !important;
           font-size: 0.97rem !important;
+        }
+        [data-testid="stDataFrame"] [class*="glideDataEditor"] {
+          --gdg-bg-cell: #0f1020;
+          --gdg-bg-cell-medium: #13152a;
+          --gdg-bg-header: #1a1d38;
+          --gdg-text-dark: #f3f4f6;
+          --gdg-text-medium: #d5d8e3;
+          --gdg-accent-color: #a78bfa;
+          --gdg-horizontal-border-color: rgba(167, 139, 250, 0.22);
+          --gdg-vertical-border-color: rgba(167, 139, 250, 0.16);
+          --gdg-selection-color: rgba(167, 139, 250, 0.24);
+        }
+        [data-testid="stDataFrame"] [class*="gdg-header"] {
+          background: #1a1d38 !important;
+          color: #f3f4f6 !important;
+          font-weight: 700 !important;
+          font-size: 0.98rem !important;
+          border-bottom: 1px solid var(--cad-border) !important;
         }
         [data-testid="stTable"] * {
           color: var(--cad-text) !important;
@@ -192,23 +216,27 @@ def _inject_brand_theme() -> None:
     )
 
 
-def _bar_chart_from_dict(data: dict[str, int | float], *, y_title: str) -> alt.Chart:
-    rows = [{"label": str(k), "value": float(v)} for k, v in (data or {}).items()]
+def _bar_chart_from_dict(data: dict[str, int | float], *, y_title: str, max_label_chars: int = 18) -> alt.Chart:
+    def _short(s: str, n: int = 18) -> str:
+        return s if len(s) <= n else (s[: n - 1] + "…")
+
+    rows = [{"label": str(k), "label_short": _short(str(k), max_label_chars), "value": float(v)} for k, v in (data or {}).items()]
     if not rows:
-        rows = [{"label": "(none)", "value": 0.0}]
+        rows = [{"label": "(none)", "label_short": "(none)", "value": 0.0}]
     chart = (
         alt.Chart(alt.Data(values=rows))
         .mark_bar(color="#8b5cf6", cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
         .encode(
             x=alt.X(
-                "label:N",
+                "label_short:N",
                 sort=None,
                 axis=alt.Axis(
                     title=None,
-                    labelAngle=-90,
+                    labelAngle=0,
                     labelColor="#f3f4f6",
                     labelFontSize=13,
                     labelPadding=10,
+                    labelLimit=170,
                 ),
             ),
             y=alt.Y(
@@ -225,6 +253,7 @@ def _bar_chart_from_dict(data: dict[str, int | float], *, y_title: str) -> alt.C
             ),
             tooltip=[
                 alt.Tooltip("label:N", title="Category"),
+                alt.Tooltip("label_short:N", title="Shown Label"),
                 alt.Tooltip("value:Q", title="Value"),
             ],
         )
@@ -234,6 +263,40 @@ def _bar_chart_from_dict(data: dict[str, int | float], *, y_title: str) -> alt.C
         .properties(height=300)
     )
     return chart
+
+
+def _needs_full_row(data: dict[str, int | float], *, max_label_chars: int = 18) -> bool:
+    labels = [str(k) for k in (data or {}).keys()]
+    if not labels:
+        return False
+    return any(len(lbl) > max_label_chars for lbl in labels) or len(labels) > 8
+
+
+def _to_df(rows: list[dict[str, object]] | dict[str, object] | list[object] | None) -> pd.DataFrame:
+    if rows is None:
+        return pd.DataFrame()
+    if isinstance(rows, dict):
+        return pd.DataFrame([rows])
+    if isinstance(rows, list):
+        if not rows:
+            return pd.DataFrame()
+        if isinstance(rows[0], dict):
+            return pd.DataFrame(rows)
+        return pd.DataFrame({"value": rows})
+    return pd.DataFrame([{"value": rows}])
+
+
+def _show_scroll_table(rows: list[dict[str, object]] | dict[str, object] | list[object] | None, *, height: int) -> None:
+    df = _to_df(rows)
+    st.dataframe(df, use_container_width=True, height=height, hide_index=True)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_goal_summary(chroma_dir: str, api_key: str, cache_key: str) -> dict[str, object]:
+    return summarize_user_goal_from_memories(
+        Path(chroma_dir),
+        openai_api_key=(api_key or None),
+    )
 
 
 def main() -> None:
@@ -247,6 +310,7 @@ def main() -> None:
     event_limit = int(args.event_limit)
 
     st.set_page_config(page_title="CAD Guardian Dashboard", layout="wide")
+    load_project_dotenv()
     _inject_brand_theme()
     st.title("CAD Guardian Live Dashboard")
     st.caption("Telemetry + memory + workspace + policy + report health")
@@ -258,6 +322,11 @@ def main() -> None:
     t0 = time.perf_counter()
     event_data = load_event_overview(logs_dir, limit=event_limit)
     mem_data = load_memory_overview(chroma_dir)
+    goal_summary = _cached_goal_summary(
+        str(chroma_dir),
+        (get_openai_api_key() or ""),
+        f"{mem_data.get('items_total', 0)}|{mem_data.get('newest_ts_utc', '')}",
+    )
     ws_data = load_workspace_overview(workspace)
     policy_data = load_policy_overview(policy_path)
     rep_data = load_reports_overview(workspace)
@@ -272,30 +341,62 @@ def main() -> None:
     kpi5.metric("Render ms", elapsed)
 
     st.subheader("Route and Outcome")
-    c1, c2 = st.columns(2)
-    c1.write("Route Distribution")
-    c1.altair_chart(
-        _bar_chart_from_dict(event_data["route_distribution"], y_title="events"),
-        use_container_width=True,
-    )
-    c2.write("Outcome Distribution")
-    c2.altair_chart(
-        _bar_chart_from_dict(event_data["outcome_distribution"], y_title="events"),
-        use_container_width=True,
-    )
+    route_data = event_data["route_distribution"]
+    outcome_data = event_data["outcome_distribution"]
+    route_outcome_full = _needs_full_row(route_data) or _needs_full_row(outcome_data)
+    label_cap = 32 if route_outcome_full else 18
+    if route_outcome_full:
+        st.write("Route Distribution")
+        st.altair_chart(
+            _bar_chart_from_dict(route_data, y_title="events", max_label_chars=label_cap),
+            use_container_width=True,
+        )
+        st.write("Outcome Distribution")
+        st.altair_chart(
+            _bar_chart_from_dict(outcome_data, y_title="events", max_label_chars=label_cap),
+            use_container_width=True,
+        )
+    else:
+        c1, c2 = st.columns(2)
+        c1.write("Route Distribution")
+        c1.altair_chart(
+            _bar_chart_from_dict(route_data, y_title="events", max_label_chars=label_cap),
+            use_container_width=True,
+        )
+        c2.write("Outcome Distribution")
+        c2.altair_chart(
+            _bar_chart_from_dict(outcome_data, y_title="events", max_label_chars=label_cap),
+            use_container_width=True,
+        )
 
     st.subheader("Command Mix and Timing")
-    c3, c4 = st.columns(2)
-    c3.write("By Command")
-    c3.altair_chart(
-        _bar_chart_from_dict(summary.get("by_command") or {}, y_title="events"),
-        use_container_width=True,
-    )
-    c4.write("Avg Duration (ms) by Command")
-    c4.altair_chart(
-        _bar_chart_from_dict(summary.get("avg_duration_ms_by_command") or {}, y_title="ms"),
-        use_container_width=True,
-    )
+    by_command_data = summary.get("by_command") or {}
+    avg_duration_data = summary.get("avg_duration_ms_by_command") or {}
+    command_timing_full = _needs_full_row(by_command_data) or _needs_full_row(avg_duration_data)
+    label_cap = 32 if command_timing_full else 18
+    if command_timing_full:
+        st.write("By Command")
+        st.altair_chart(
+            _bar_chart_from_dict(by_command_data, y_title="events", max_label_chars=label_cap),
+            use_container_width=True,
+        )
+        st.write("Avg Duration (ms) by Command")
+        st.altair_chart(
+            _bar_chart_from_dict(avg_duration_data, y_title="ms", max_label_chars=label_cap),
+            use_container_width=True,
+        )
+    else:
+        c3, c4 = st.columns(2)
+        c3.write("By Command")
+        c3.altair_chart(
+            _bar_chart_from_dict(by_command_data, y_title="events", max_label_chars=label_cap),
+            use_container_width=True,
+        )
+        c4.write("Avg Duration (ms) by Command")
+        c4.altair_chart(
+            _bar_chart_from_dict(avg_duration_data, y_title="ms", max_label_chars=label_cap),
+            use_container_width=True,
+        )
 
     st.subheader("Memory Health")
     m1, m2 = st.columns(2)
@@ -314,11 +415,19 @@ def main() -> None:
         }
     )
     st.write("Recent Memory Items")
-    st.dataframe(
-        mem_data.get("latest_items") or [],
-        use_container_width=True,
-        height=320,
-    )
+    _show_scroll_table(mem_data.get("latest_items") or [], height=320)
+    st.write("User Goal Summary (Memories Only)")
+    goal_text = str(goal_summary.get("summary") or "").strip()
+    goal_status = str(goal_summary.get("status") or "ok").strip().lower()
+    if goal_status == "ok":
+        st.success(goal_text or "No goal summary available.")
+    elif goal_status == "unavailable":
+        st.warning(goal_text or "Goal summary unavailable.")
+    else:
+        st.error(goal_text or "Goal summary failed.")
+        err = str(goal_summary.get("error") or "").strip()
+        if err:
+            st.caption(f"error={err}")
 
     st.subheader("Workspace Health")
     w1, w2 = st.columns(2)
@@ -331,17 +440,10 @@ def main() -> None:
         }
     )
     w2.write("Top Extensions")
-    w2.dataframe(
-        ws_data.get("top_extensions") or [],
-        use_container_width=True,
-        height=300,
-    )
+    with w2:
+        _show_scroll_table(ws_data.get("top_extensions") or [], height=300)
     st.write("Largest Files")
-    st.dataframe(
-        ws_data.get("largest_files") or [],
-        use_container_width=True,
-        height=320,
-    )
+    _show_scroll_table(ws_data.get("largest_files") or [], height=320)
 
     st.subheader("Policy Posture")
     p1, p2 = st.columns(2)
@@ -376,11 +478,7 @@ def main() -> None:
     )
 
     st.subheader("Latest Events")
-    st.dataframe(
-        event_data.get("latest_events") or [],
-        use_container_width=True,
-        height=360,
-    )
+    _show_scroll_table(event_data.get("latest_events") or [], height=360)
 
 
 if __name__ == "__main__":

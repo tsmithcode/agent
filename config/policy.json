@@ -90,7 +90,7 @@
   },
   "routing_controls": {
     "enable_deterministic_routing": true,
-    "deterministic_confidence_threshold": 0.86,
+    "deterministic_confidence_threshold": 0.92,
     "allowed_handlers": [],
     "force_llm_patterns": [
       "\\bexplain\\b",
@@ -101,22 +101,23 @@
     ]
   },
   "execution_limits": {
-    "max_runtime_seconds": 180,
-    "max_output_chars": 3000,
-    "max_file_write_bytes": 5000000,
-    "max_steps_per_plan": 20,
-    "max_completion_tokens": 700,
-    "max_memory_items": 3,
-    "max_memory_chars": 3000,
-    "max_answer_chars": 2500,
-    "max_answer_lines": 6,
-    "max_stdout_lines": 20,
-    "max_stderr_lines": 20,
-    "max_context_files": 200,
-    "max_context_file_chars": 1200,
-    "max_context_chars": 12000,
+    "max_runtime_seconds": 300,
+    "max_output_chars": 8000,
+    "max_file_write_bytes": 10000000,
+    "max_steps_per_plan": 30,
+    "max_completion_tokens": 1200,
+    "max_memory_items": 8,
+    "max_memory_chars": 10000,
+    "max_answer_chars": 6000,
+    "max_answer_lines": 20,
+    "max_stdout_lines": 80,
+    "max_stderr_lines": 80,
+    "max_context_files": 500,
+    "max_context_file_chars": 2000,
+    "max_context_chars": 30000,
     "include_git_status": true,
-    "execution_mode": "single_step",
-    "max_actions_per_run": 1
+    "execution_mode": "continue_until_done",
+    "max_actions_per_run": 5,
+    "llm_model": "gpt-4o-mini"
   }
 }

@@ -12,6 +12,7 @@ from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
+from .cli_ui import COLOR_RULES
 from .paths import Paths
 
 MAX_TREE_ROWS = 300
@@ -65,7 +66,7 @@ def _render_tree(console: Console, *, title: str, root: Path, max_depth: Optiona
         console.print("missing")
         return
 
-    tree = Tree(Text(str(root), style=f"link file://{root}"))
+    tree = Tree(Text(str(root), style=f"{COLOR_RULES['success']} link file://{root}"))
 
     def _walk(parent: Tree, cur: Path, depth: int) -> None:
         nonlocal shown_nodes, dir_count, file_count, truncated
@@ -83,7 +84,8 @@ def _render_tree(console: Console, *, title: str, root: Path, max_depth: Optiona
                 truncated = True
                 return
             shown_nodes += 1
-            label = Text(f"{entry.name}/" if entry.is_dir() else entry.name, style=f"link file://{entry.resolve()}")
+            tone = COLOR_RULES["path_dir"] if entry.is_dir() else COLOR_RULES["path_file"]
+            label = Text(f"{entry.name}/" if entry.is_dir() else entry.name, style=f"{tone} link file://{entry.resolve()}")
             child = parent.add(label)
             if entry.is_dir():
                 dir_count += 1
@@ -124,6 +126,10 @@ def outputs_once(console: Console, depth: Optional[int]) -> None:
     _render_tree(console, title="Outputs: Workspace Reports", root=reports_dir, max_depth=depth)
     _render_tree(console, title="Outputs: Host Logs", root=paths.logs_dir, max_depth=depth)
     _render_tree(console, title="Outputs: Host Artifacts", root=paths.artifacts_dir, max_depth=depth)
+
+
+def show_folder_once(console: Console, root: Path, *, depth: Optional[int] = 3, title: str = "Folder View") -> None:
+    _render_tree(console, title=title, root=root, max_depth=depth)
 
 
 def extract_depth(prompt: str, default: int = 4) -> int:

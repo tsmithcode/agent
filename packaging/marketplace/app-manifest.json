@@ -45,11 +45,21 @@
     "commands": [
       "run",
       "ask",
+      "do",
+      "setup",
+      "guide",
+      "status",
+      "tasks list",
+      "tasks run",
+      "policy list",
+      "policy show",
+      "policy use",
       "doctor",
       "inspect structure",
       "inspect workspace",
       "inspect outputs",
       "dev snaps",
+      "dev eval",
       "dev metrics",
       "dev dashboard"
     ],
@@ -70,6 +80,7 @@
   },
   "policy_and_safety": {
     "policy_file": "config/policy.json",
+    "capability_manifest": "config/capabilities.manifest.json",
     "sandbox_model": "policy-controlled command and path constraints",
     "requires_confirmation_for_apply_style_batches": true
   },

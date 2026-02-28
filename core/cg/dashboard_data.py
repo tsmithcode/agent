@@ -27,6 +27,14 @@ def _parse_ts(ts: str) -> datetime | None:
         return None
 
 
+def _cap_chars(text: str, max_chars: int) -> str:
+    if max_chars <= 0:
+        return ""
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 1] + "…"
+
+
 def load_event_overview(logs_dir: Path, *, limit: int = 5000) -> dict[str, Any]:
     events = read_events(logs_dir, limit=limit)
     summary = summarize_events(events)
@@ -194,3 +202,139 @@ def load_reports_overview(workspace: Path) -> dict[str, Any]:
         "metrics_runs_total": len(metric_runs),
         "metrics_runs_latest": metric_runs[:20],
     }
+
+
+def summarize_user_goal_from_memories(
+    chroma_dir: Path,
+    *,
+    openai_api_key: str | None,
+    collection_name: str = "cg_openclaw_memory",
+    max_context_chars_per_chunk: int = 12000,
+) -> dict[str, Any]:
+    out: dict[str, Any] = {"summary": "", "status": "ok", "error": ""}
+    if not (openai_api_key or "").strip():
+        out["status"] = "unavailable"
+        out["summary"] = "Goal summary unavailable: OPENAI_API_KEY is not set."
+        return out
+
+    try:
+        from chromadb import PersistentClient
+
+        client = PersistentClient(path=str(chroma_dir))
+        coll = client.get_or_create_collection(name=collection_name)
+        count = coll.count()
+        if count == 0:
+            out["summary"] = "No memories yet. Run ask/run commands to build memory first."
+            return out
+
+        all_metas: list[dict[str, Any]] = []
+        all_docs: list[str] = []
+        batch_size = 500
+        offset = 0
+        while offset < count:
+            got = coll.get(
+                include=["metadatas", "documents"],
+                limit=min(batch_size, count - offset),
+                offset=offset,
+            )
+            metas = got.get("metadatas") or []
+            docs = got.get("documents") or []
+            all_metas.extend([m or {} for m in metas])
+            all_docs.extend([str(d or "") for d in docs])
+            fetched = max(len(metas), len(docs))
+            if fetched <= 0:
+                break
+            offset += fetched
+
+        rows: list[tuple[str, str]] = []
+        for i, m in enumerate(all_metas):
+            ts = str(m.get("ts_utc") or "")
+            kind = str(m.get("kind") or "unknown")
+            mode = str(m.get("mode") or "")
+            doc = str(all_docs[i] or "") if i < len(all_docs) else ""
+            rows.append((ts, f"ts={ts} | kind={kind} | mode={mode} | text={doc.replace(chr(10), ' ')}"))
+
+        rows.sort(key=lambda x: x[0], reverse=True)
+        lines = [r[1] for r in rows]
+
+        def _chunk_lines(items: list[str], *, max_chars: int) -> list[str]:
+            chunks: list[str] = []
+            cur: list[str] = []
+            cur_len = 0
+            for ln in items:
+                n = len(ln) + 1
+                if cur and (cur_len + n) > max_chars:
+                    chunks.append("\n".join(cur))
+                    cur = [ln]
+                    cur_len = n
+                else:
+                    cur.append(ln)
+                    cur_len += n
+            if cur:
+                chunks.append("\n".join(cur))
+            return chunks
+
+        chunks = _chunk_lines(lines, max_chars=max(2000, max_context_chars_per_chunk))
+
+        try:
+            from .llm import LLM
+        except ImportError as e:
+            if "attempted relative import with no known parent package" not in str(e):
+                raise
+            here = Path(__file__).resolve().parent
+            if str(here) not in sys.path:
+                sys.path.insert(0, str(here))
+            from llm import LLM  # type: ignore
+
+        llm = LLM(api_key=openai_api_key.strip())
+        chunk_summaries: list[str] = []
+        for idx, chunk in enumerate(chunks, 1):
+            chunk_prompt = (
+                f"Memory chunk {idx}/{len(chunks)}.\n"
+                "Summarize user goals and trust expectations from this chunk only.\n"
+                "Return concise bullets with evidence-style wording from entries."
+            )
+            reply = llm.ask(
+                chunk_prompt,
+                chunk,
+                max_completion_tokens=260,
+                task_mode="ask",
+            )
+            chunk_summaries.append((reply.answer or "").strip())
+
+        # Final aggregation explicitly combines ALL chunk summaries.
+        agg_context = _cap_chars(
+            "Chunk summaries (all memory coverage):\n"
+            + "\n\n".join([f"[chunk {i+1}] {s}" for i, s in enumerate(chunk_summaries)]),
+            120000,
+        )
+        final_prompt = (
+            "Using ALL chunk summaries (covering all memories), produce a comprehensive perceived-goal summary.\n"
+            "Format:\n"
+            "- Primary goal\n"
+            "- Secondary goals\n"
+            "- Preferred operating style\n"
+            "- Trust/safety expectations\n"
+            "- Product expectations right now\n"
+            "- Confidence and caveats\n"
+            "Be concise but complete."
+        )
+        final_reply = llm.ask(
+            final_prompt,
+            agg_context,
+            max_completion_tokens=380,
+            task_mode="ask",
+        )
+        summary = (final_reply.answer or "").strip()
+        if summary:
+            summary = f"{summary}\n\ncoverage: memories={len(lines)} | chunks={len(chunks)}"
+        out["summary"] = summary or "Goal summary unavailable: model returned empty output."
+        if not summary:
+            out["status"] = "error"
+            out["error"] = "empty_summary"
+        return out
+    except Exception as e:
+        out["status"] = "error"
+        out["error"] = str(e)
+        out["summary"] = "Goal summary unavailable due to LLM/memory error."
+        return out

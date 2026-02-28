@@ -20,7 +20,15 @@ COLOR_RULES = {
     "info": "#c4b5fd",
     "subtle": "#9ca3af",
     "text": "#f3f4f6",
+    "path_dir": "bold #a78bfa",
+    "path_file": "#c2c6d0",
 }
+SIMPLE_MODE = False
+
+
+def set_simple_mode(enabled: bool) -> None:
+    global SIMPLE_MODE
+    SIMPLE_MODE = bool(enabled)
 
 
 def _resolve_path(candidate: str, *, base_dir: Path) -> Path | None:
@@ -28,14 +36,34 @@ def _resolve_path(candidate: str, *, base_dir: Path) -> Path | None:
     if not c or "://" in c:
         return None
     if c.startswith("~"):
-        return Path(c).expanduser().resolve()
+        # Only treat "~" forms as paths when they are valid home-path syntax.
+        # This avoids false positives like "~50" in normal text.
+        if c == "~" or c.startswith("~/") or re.match(r"^~[A-Za-z0-9_.-]+(?:/|$)", c):
+            try:
+                return Path(c).expanduser().resolve()
+            except Exception:
+                return None
+        return None
     p = Path(c)
-    if p.is_absolute():
-        return p.resolve()
-    return (base_dir / p).resolve()
+    try:
+        if p.is_absolute():
+            return p.resolve()
+        return (base_dir / p).resolve()
+    except Exception:
+        return None
 
 
 def _linkify_line(line: str, *, base_dir: Path) -> Text:
+    def _path_style(candidate: str, path_obj: Path) -> str:
+        is_dir_hint = candidate.endswith("/")
+        is_dir_real = False
+        try:
+            is_dir_real = path_obj.exists() and path_obj.is_dir()
+        except Exception:
+            is_dir_real = False
+        tone = COLOR_RULES["path_dir"] if (is_dir_hint or is_dir_real) else COLOR_RULES["path_file"]
+        return f"{tone} link file://{path_obj}"
+
     out = Text()
     idx = 0
     for m in _PATH_RE.finditer(line):
@@ -45,7 +73,7 @@ def _linkify_line(line: str, *, base_dir: Path) -> Text:
         if path_obj is None:
             continue
         out.append(line[idx:start])
-        out.append(cand, style=f"link file://{path_obj}")
+        out.append(cand, style=_path_style(cand, path_obj))
         idx = end
     out.append(line[idx:])
     return out
@@ -117,6 +145,16 @@ def print_runtime_error(console: Console, title: str, error: Exception, hint: st
 
 
 def print_route_decision(console: Console, decision: RouteDecision) -> None:
+    if SIMPLE_MODE:
+        message = "Using direct safe command path." if decision.mode == "deterministic" else "Using AI reasoning path."
+        print_cli_notice(
+            console,
+            title="How I Answered",
+            level="info",
+            message=message,
+            help_line=decision.reason,
+        )
+        return
     level = "success" if decision.mode == "deterministic" else "warning"
     message = (
         f"mode={decision.mode}"
@@ -133,6 +171,20 @@ def print_route_decision(console: Console, decision: RouteDecision) -> None:
 
 
 def print_answer_path(console: Console, used: str, reason: str) -> None:
+    if SIMPLE_MODE:
+        mapping = {
+            "command": "I used built-in commands.",
+            "llm": "I used AI only.",
+            "both": "I used AI plus safe command execution.",
+        }
+        print_cli_notice(
+            console,
+            title="Answer Path",
+            level="success",
+            message=mapping.get(used, f"I used: {used}"),
+            help_line=reason,
+        )
+        return
     print_cli_notice(
         console,
         title="Answer Path",
@@ -148,7 +200,8 @@ def print_full_help(console: Console) -> None:
         title="Help",
         body=(
             "CAD Guardian CLI\n"
-            "Ask over a live runtime snapshot of codebase/workspace and run policy-controlled actions from one CLI."
+            "Ask over a live runtime snapshot of codebase/workspace and run policy-controlled actions from one CLI.\n"
+            "Global flag: --simple (beginner-friendly wording)."
         ),
     )
 
@@ -159,16 +212,32 @@ def print_full_help(console: Console) -> None:
     table.add_column("Purpose", style=COLOR_RULES["text"], overflow="fold")
     table.add_row("cg run", "PROMPT", "--full", "Deterministic-first execution; LLM fallback for open-ended tasks.")
     table.add_row("cg ask", "QUESTION", "--full, --ctx", "Read-only Q&A over runtime snapshot + light memory.")
+    table.add_row("cg do", "REQUEST", "--full, --ctx", "Auto-route to ask or run for beginner-friendly use.")
+    table.add_row("cg setup", "(none)", "--apply-base/--no-apply-base, --doctor/--no-doctor", "Run onboarding wizard.")
+    table.add_row(
+        "cg fetch",
+        "DRIVE_FOLDER_LINK",
+        "--folder, -d, --open/--no-open",
+        "Download Google Drive folder into workspace/downloads and reveal folder for console/SSH.",
+    )
+    table.add_row("cg tasks list", "(none)", "(none)", "List ready-made templates.")
+    table.add_row("cg tasks run", "NAME", "(none)", "Run a built-in task template.")
+    table.add_row("cg guide", "(none)", "--mode starter|power", "Show guided command flows by user type.")
+    table.add_row("cg status", "(none)", "--limit", "Show success metrics and next-step recommendations.")
     table.add_row("cg doctor", "(none)", "--verbose (optional)", "Environment and policy diagnostics.")
     table.add_row("cg inspect structure", "(none)", "-d 4", "Project tree from home path.")
     table.add_row("cg inspect workspace", "(none)", "-d (optional)", "Workspace tree with summary.")
     table.add_row("cg inspect outputs", "(none)", "-d (optional)", "Reports/logs/artifacts tree view.")
+    table.add_row("cg policy list", "(none)", "(none)", "List policy tiers and key runtime limits.")
+    table.add_row("cg policy show", "(none)", "(none)", "Show active policy and inferred tier.")
+    table.add_row("cg policy use", "TIER", "--yes", "Apply max/base/cheap profile with backup.")
     table.add_row("cg dev snaps", "(none)", "(none)", "Run CLI snapshot tests and save report.")
-    table.add_row("cg dev metrics", "(none)", "--format json|csv", "Build BI-ready telemetry summaries.")
+    table.add_row("cg dev eval", "(none)", "--suite core", "Run native task success benchmarks.")
+    table.add_row("cg dev metrics", "(none)", "--format json|csv --limit", "Build BI-ready telemetry summaries.")
     table.add_row(
         "cg dev dashboard",
         "(none)",
-        "--live --refresh-seconds --port",
+        "--live --refresh-seconds --port --event-limit",
         "Open live dashboard for telemetry/memory/workspace/policy.",
     )
     table.add_row("cg --help", "(none)", "(none)", "Show this expanded help view.")
@@ -201,6 +270,10 @@ def print_full_help(console: Console) -> None:
         body=(
             "Policy violations:\n"
             "- blocked actions show exact policy key from config/policy.json\n"
+            "Policy tiers:\n"
+            "- cheap = lowest cost (gpt-4o-mini)\n"
+            "- base = balanced daily mode (gpt-4o)\n"
+            "- max = power mode for deep refactors (gpt-4.1)\n"
             "Traceability:\n"
             "- each session prints run_id\n"
             "- telemetry events are written for reporting"
@@ -216,15 +289,36 @@ def print_full_help(console: Console) -> None:
         title="Quick Examples",
         body=(
             "cg run \"List files in workspace\"\n"
+            "cg do \"show files\"\n"
             "cg run \"Run tests\" --full\n"
             "cg ask \"What does this app do?\" --ctx\n"
+            "cg setup\n"
+            "cg fetch \"https://drive.google.com/drive/folders/<id>\" --folder incoming-assets\n"
+            "cg tasks list\n"
+            "cg tasks run starter-check\n"
+            "cg guide --mode starter\n"
+            "cg status --limit 200\n"
             "cg doctor\n"
             "cg doctor --verbose\n"
             "cg inspect structure -d 4\n"
             "cg inspect workspace -d 4\n"
             "cg inspect outputs -d 3\n"
+            "cg policy list\n"
+            "cg policy show\n"
+            "cg policy use cheap --yes\n"
             "cg dev snaps\n"
-            "cg dev metrics --format json\n"
-            "cg dev dashboard --live --refresh-seconds 5"
+            "cg dev eval --suite core\n"
+            "cg dev metrics --format json --limit 1000\n"
+            "cg dev dashboard --live --refresh-seconds 5 --event-limit 5000"
+        ),
+    )
+    print_section(
+        console,
+        title="Dashboard Control",
+        body=(
+            "Start:\n"
+            "- cg dev dashboard --live --refresh-seconds 5 --port 8501\n"
+            "Stop (background process):\n"
+            "- pkill -f \"streamlit run .*dashboard_app.py\""
         ),
     )

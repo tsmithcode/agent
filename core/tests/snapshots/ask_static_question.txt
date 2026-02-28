@@ -1,20 +1,17 @@
 ================== SESSION START ==================
 command=ask | run_id=<dynamic>
-
-                                 CAD Guardian Insight
-┌──────────┬──────────────────────────────────────────────────────────────────────────┐
-│ Question │ What can you tell me about yourself and your policies?                   │
-│ Context  │ memory_items=0 (secondary) | context_chars=<dynamic>                          │
-│ Runtime  │ mode=single_step | max_tokens=700 | max_steps=20 | max_output_chars=3000 │
-└──────────┴──────────────────────────────────────────────────────────────────────────┘
-
+                                        CAD Guardian Insight
+┌──────────┬───────────────────────────────────────────────────────────────────────────────────────┐
+│ Question │ What can you tell me about yourself and your policies?                                │
+│ Context  │ memory_items=0 (secondary) | context_chars=<dynamic>                                      │
+│ Runtime  │ model=gpt-4o-mini | mode=continue_until_done | max_tokens=1200 | max_steps=30 |       │
+│          │ max_output_chars=8000                                                                 │
+└──────────┴───────────────────────────────────────────────────────────────────────────────────────┘
 ------------ Insight Answer ------------
 I am CAD Guardian. I support run, ask, doctor, inspect, and dev snapshot tests. My behavior is
 controlled by policy.json limits and allow/deny rules.
-
 ------------ Answer Path ------------
 SUCCESS used=llm
 Help: ask mode is read-only and uses LLM over runtime snapshot context
-
 ================== SESSION END ==================
 command=ask | run_id=<dynamic>

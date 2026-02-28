@@ -6,22 +6,25 @@ import socket
 from pathlib import Path
 from typing import Optional
 
-from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
 from .cli_ui import COLOR_RULES, print_section
+from .capability_manifest import validate_manifest
+from .command_groups import detect_active_policy_tier, policy_profiles_dir
+from .env import get_openai_api_key, load_project_dotenv
 from .memory import LongTermMemory
 from .paths import Paths
 from .policy import Policy
+from .tool_registry import list_tools
 
 
-def doctor_once(console: Console, *, verbose: bool = False) -> dict[str, int]:
-    load_dotenv()
+def doctor_once(console: Console, *, verbose: bool = False, app=None) -> dict[str, int]:
+    load_project_dotenv()
     rows: list[tuple[str, str, str]] = []
     policy_path: Optional[Path] = None
 
-    api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    api_key = get_openai_api_key()
     rows.append(("OPENAI_API_KEY", "PASS" if api_key else "WARN", "Set" if api_key else "Missing"))
 
     policy: Optional[Policy] = None
@@ -78,6 +81,12 @@ def doctor_once(console: Console, *, verbose: bool = False) -> dict[str, int]:
         rows.append(("DNS api.openai.com", "WARN", str(e)))
 
     if policy is not None:
+        rows.append(("Policy tier", "PASS", detect_active_policy_tier(paths) if paths is not None else "unknown"))
+        if paths is not None:
+            profiles = policy_profiles_dir(paths)
+            for name in ("cheap", "base", "max"):
+                exists = (profiles / f"{name}.json").exists()
+                rows.append((f"Policy profile: {name}", "PASS" if exists else "FAIL", str((profiles / f"{name}.json"))))
         rows.append(("Execution mode", "PASS", policy.execution_mode()))
         rows.append(
             (
@@ -106,9 +115,19 @@ def doctor_once(console: Console, *, verbose: bool = False) -> dict[str, int]:
                 f"enabled={policy.enable_deterministic_routing()} threshold={policy.deterministic_confidence_threshold():.2f}",
             )
         )
+        rows.append(("LLM model", "PASS", policy.llm_model()))
+        rows.append(("Deterministic tools", "PASS", f"registered={len(list_tools())}"))
+
+    if paths is not None and policy is not None and app is not None:
+        mv = validate_manifest(paths=paths, policy=policy, app=app)
+        rows.append(("Capability manifest", "PASS" if mv.ok else "FAIL", "validated"))
+        for w in mv.warnings:
+            rows.append(("Capability warning", "WARN", w))
+        for e in mv.errors:
+            rows.append(("Capability error", "FAIL", e))
 
     if paths is not None:
-        api_key_for_mem = (os.getenv("OPENAI_API_KEY") or "").strip() or None
+        api_key_for_mem = get_openai_api_key()
         try:
             mem = LongTermMemory(
                 chroma_dir=str(paths.chroma_dir),

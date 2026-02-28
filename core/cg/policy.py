@@ -110,6 +110,10 @@ class Policy:
     def max_actions_per_run(self) -> int:
         return int(self.execution_limits.get("max_actions_per_run", 1))
 
+    def llm_model(self) -> str:
+        model = str(self.execution_limits.get("llm_model", "")).strip()
+        return model or "gpt-4o-mini"
+
     def destructive_deny_patterns(self) -> List[str]:
         return [str(x) for x in (self.destructive_command_controls.get("deny_patterns") or [])]
 

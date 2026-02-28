@@ -1,0 +1,34 @@
+{
+  "manifest_version": "1.0",
+  "required_commands": [
+    "run",
+    "ask",
+    "do",
+    "setup",
+    "guide",
+    "status",
+    "fetch",
+    "doctor",
+    "policy list",
+    "policy show",
+    "policy use",
+    "inspect structure",
+    "inspect workspace",
+    "inspect outputs",
+    "tasks list",
+    "tasks run",
+    "dev snaps",
+    "dev metrics",
+    "dev dashboard"
+  ],
+  "deterministic_handlers": [
+    "inspect_workspace",
+    "inspect_outputs",
+    "inspect_structure",
+    "dev_snaps"
+  ],
+  "policy_expectations": {
+    "command_allowlist_contains": ["cg", "python3", "git"],
+    "required_profiles": ["cheap", "base", "max"]
+  }
+}

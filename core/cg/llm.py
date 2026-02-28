@@ -46,10 +46,8 @@ BEHAVIOR RULES:
 - Do not self-iterate.
 
 2) Cost-Minimal Output
-- Keep "answer" under 6 lines.
 - Do not restate user prompt.
 - Do not include reasoning.
-- Do not output large file contents.
 - Prefer concise diffs over full files.
 - Prefer single commands over multiple small commands.
 
@@ -131,6 +129,7 @@ class LLM:
         user_text: str,
         retrieved_memory: str,
         *,
+        model: str = "gpt-4o-mini",
         max_completion_tokens: int = 700,
         task_mode: str = "run",
     ) -> AgentReply:
@@ -143,7 +142,7 @@ Relevant long-term memory:
         system_prompt = ASK_SYSTEM_PROMPT if task_mode == "ask" else SYSTEM_PROMPT
 
         resp = self.client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model or "gpt-4o-mini",
             max_completion_tokens=max_completion_tokens,
             messages=[
                 {"role": "system", "content": system_prompt},
