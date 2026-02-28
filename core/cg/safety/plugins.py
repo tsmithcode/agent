@@ -53,7 +53,7 @@ def plugin_contracts() -> Dict[str, PluginContract]:
             name="metrics",
             description="Telemetry aggregation and reporting.",
             commands=["dev metrics"],
-            required_files=["core/cg/telemetry.py"],
+            required_files=["core/cg/observability/telemetry.py"],
         ),
         "tasks": PluginContract(
             name="tasks",

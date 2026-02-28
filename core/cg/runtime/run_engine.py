@@ -14,7 +14,7 @@ from ..data.paths import Paths
 from ..safety.policy import Policy
 from ..routing.router import decide_route
 from .common import finish_event, limits_summary, memory_context, print_run_summary, save_memory
-from .tool_registry import DeterministicContext, execute_tool
+from ..routing.tool_registry import DeterministicContext, execute_tool
 from cg_utils import cap_chars, truncate_for_display
 
 
