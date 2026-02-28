@@ -96,11 +96,11 @@ Expectations by tier:
 Commands:
 
 ```bash
-cg policy list
-cg policy show
-cg policy use cheap --yes
-cg policy use base --yes
-cg policy use max --yes
+cg policy list  # show tiers
+cg policy show  # active policy summary
+cg policy use cheap --yes  # lowest cost
+cg policy use base --yes  # balanced default
+cg policy use max --yes  # highest capability
 ```
 
 Profile files:
