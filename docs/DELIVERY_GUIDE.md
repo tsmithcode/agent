@@ -1,72 +1,18 @@
-# CAD Guardian Delivery, Install, and Update Guide
+# CAD Guardian Core Delivery, Install, and Update Guide
 
-This guide covers an end-to-end, repeatable release workflow with versioned artifacts and professional distribution.
+This guide covers install/update/uninstall for the reduced LLM-only core profile.
 
-## Goals
+## What Changed
 
-- Versioned releases with provenance
-- One-line installs for customers
-- Repeatable update path
-- Optional Homebrew and private registry support
+- Core profile only (no plugin system).
+- No dashboard/eval/snapshot/fetch add-on commands.
+- Deterministic router removed; `ask/run/do` are LLM-based.
 
-## Prerequisites (developer)
-
-- GitHub repo with Actions enabled
-- PyPI project created (name in `pyproject.toml`)
-- Git tag versioning (`vX.Y.Z`)
-- `OPENAI_API_KEY` set for runtime use (not required for build)
-
-## 1) Developer Release Flow (recommended)
-
-### A. Bump version
-
-Update version in `pyproject.toml`.
-
-### B. Commit and tag
-
-```bash
-git add pyproject.toml
-
-git commit -m "release: vX.Y.Z"
-
-git tag vX.Y.Z
-
-git push origin main --tags
-```
-
-### C. GitHub Actions build + publish
-
-The workflow `.github/workflows/release.yml` will:
-
-- Run tests
-- Run docs QA checks (`docs/check_docs.py`)
-- Build full wheel/sdist
-- Build core profile wheel/sdist (`CG_BUILD_PROFILE=core`)
-- Generate marketplace manifests
-- Publish to PyPI for tagged releases
-
-### D. Local profile builds (optional)
-
-```bash
-# full artifact (includes add-on modules)
-python -m build
-
-# core artifact (excludes cg.addons modules)
-CG_BUILD_PROFILE=core python -m build --outdir dist-core
-```
-
-## 2) Customer Install (PyPI + pipx)
+## Install (pipx)
 
 ```bash
 pipx install cad-guardian
 cg setup
-cg guide --mode starter
-```
-
-If you want dashboard dependencies installed at install time:
-
-```bash
-pipx install 'cad-guardian[dashboard]'
 ```
 
 If `pipx` is not installed:
@@ -76,19 +22,19 @@ python3 -m pip install --user pipx
 python3 -m pipx ensurepath
 ```
 
-## 3) Customer Update
+## Update
 
 ```bash
 pipx upgrade cad-guardian
 ```
 
-If installed via venv:
+If installed in a venv:
 
 ```bash
 pip install --upgrade cad-guardian
 ```
 
-## 4) Uninstall
+## Uninstall
 
 ### pipx
 
@@ -102,44 +48,19 @@ pipx uninstall cad-guardian
 pip uninstall cad-guardian
 ```
 
-### Homebrew
+## Validation Checklist
+
+Run these after install/update:
 
 ```bash
-brew uninstall cad-guardian
-```
-
-## 5) Optional: Homebrew (macOS)
-
-Formula lives at `packaging/homebrew/cad-guardian.rb`.
-
-Update `url` + `sha256` per release tarball, then publish to your tap.
-
-Install example:
-
-```bash
-brew tap your-org/cad-guardian
-brew install cad-guardian
-```
-
-## 6) Enterprise / Private Registry (optional)
-
-- Use GitHub Packages or Artifactory as a private Python registry.
-- Update `pip` index URL for customers.
-- This avoids public PyPI while keeping versioned installs.
-
-## 7) Validation Checklist
-
-Customer should run:
-
-```bash
-python docs/check_docs.py
 cg setup
 cg doctor
-cg do "show files"
+cg do "summarize this workspace"
+cg status --limit 100
 ```
 
 ## Notes
 
-- Plugin config defaults to enabled, but command availability is contract-based (enabled in config + required files + required dependencies).
-- Dashboard command appears only when dashboard plugin contract is satisfied (files + deps).
-- Do not ship API keys. Customer sets `OPENAI_API_KEY` locally.
+- Do not ship API keys; user sets `OPENAI_API_KEY` locally.
+- `cg` (no subcommand) starts interactive loop mode in terminal.
+- Policy controls still enforce command/path/network/runtime boundaries.

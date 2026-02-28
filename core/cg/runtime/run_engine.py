@@ -1,132 +1,82 @@
 from __future__ import annotations
 
 import re
-import threading
 import time
 import uuid
-from typing import Any, Callable, Optional
 
 from ..data.env import get_openai_api_key, load_project_dotenv
-from ..safety.executor import Executor, PolicyViolation
-from .llm import LLM
 from ..data.memory import LongTermMemory
 from ..data.paths import Paths
+from ..safety.executor import Executor, PolicyViolation
 from ..safety.policy import Policy
-from ..routing.router import decide_route
-from .common import finish_event, limits_summary, memory_context, print_run_summary, save_memory
-from ..routing.tool_registry import DeterministicContext, execute_tool
+from .common import finish_event, limits_summary, memory_context, save_memory
+from .llm import LLM
+from .policy_insight import policy_violation_insight
 from cg_utils import cap_chars, truncate_for_display
 
 
-def _run_with_spinner(console, message: str, fn):
-    done = threading.Event()
-    result: dict[str, Any] = {}
-    error: dict[str, Exception] = {}
-
-    def _worker() -> None:
-        try:
-            result["value"] = fn()
-        except Exception as e:
-            error["value"] = e
-        finally:
-            done.set()
-
-    t = threading.Thread(target=_worker, daemon=True)
-    t.start()
-    with console.status(f"[bold #a78bfa]{message}[/]", spinner="dots"):
-        while not done.wait(0.1):
-            pass
-    if "value" in error:
-        raise error["value"]
-    return result.get("value")
-
-
-def _step_preview_text(step: Any) -> str:
-    step_type = getattr(step, "type", "") or "unknown"
+def _step_preview(step) -> str:
+    step_type = str(getattr(step, "type", "") or "note")
     if step_type == "write":
-        path = getattr(step, "path", None) or "(missing path)"
-        return f"write: {path}"
+        return f"write: {getattr(step, 'path', '') or '(missing path)'}"
     if step_type == "cmd":
         return f"cmd: {getattr(step, 'value', '')}"
     return f"note: {getattr(step, 'value', '')}"
 
 
-def _actionable_steps(reply_plan: list[Any]) -> list[Any]:
-    return [s for s in reply_plan if getattr(s, "type", None) in {"cmd", "write"}]
-
-
-def _has_confirm_token(prompt: str) -> bool:
-    p = (prompt or "").lower()
-    return bool(re.search(r"\bconfirm\s*[:=]\s*yes\b", p))
-
-
-def _requires_apply_confirmation(prompt: str, actionable_steps: list[Any]) -> bool:
-    p = (prompt or "").lower()
-    apply_intent = any(
-        k in p
-        for k in (
-            "apply",
-            "rename",
-            "rewrite",
-            "sanitize",
-            "normalize",
-            "batch",
-            "delete",
-            "move",
-            "modify",
-            "update",
-        )
-    )
-    has_risky_action = any(getattr(s, "type", "") in {"cmd", "write"} for s in actionable_steps)
-    return apply_intent and has_risky_action
+def _requires_confirmation(prompt: str, actionable_steps: list) -> bool:
+    text = (prompt or "").lower()
+    apply_words = {
+        "apply",
+        "delete",
+        "rename",
+        "rewrite",
+        "sanitize",
+        "normalize",
+        "move",
+        "modify",
+        "update",
+    }
+    wants_apply = any(w in text for w in apply_words)
+    has_action = any(str(getattr(s, "type", "")) in {"cmd", "write"} for s in actionable_steps)
+    return wants_apply and has_action and not re.search(r"\bconfirm\s*[:=]\s*yes\b", text)
 
 
 def _execute_step(
     executor: Executor,
-    step: Any,
+    step,
     *,
-    max_runtime_seconds: int,
+    timeout_s: int,
+    full_output: bool,
     max_output_chars: int,
     stdout_line_cap: int,
     stderr_line_cap: int,
-    full_output: bool,
     print_section,
     print_status_line,
     console,
 ) -> bool:
     if step.type == "write":
         if not step.path:
-            raise PolicyViolation("write step missing path")
-        out_path = executor.write_file(step.path, step.value)
-        print_section(console, title="Write", body=f"WROTE {out_path}\nRun complete executed=write")
+            raise PolicyViolation("write step missing path", rule="allowed_write_roots")
+        out = executor.write_file(step.path, step.value)
+        print_section(console, title="Write", body=f"WROTE {out}")
         return True
 
     if step.type == "cmd":
-        res = executor.run(step.value, timeout_s=max_runtime_seconds)
+        res = executor.run(step.value, timeout_s=timeout_s)
         print_section(console, title="Command", body=f"CMD {res.command}\nstatus={'OK' if res.ok else 'FAIL'}")
         show_output = full_output or (not res.ok)
         if show_output and res.stdout.strip():
-            out, truncated = truncate_for_display(
-                res.stdout,
-                max_chars=max_output_chars,
-                max_lines=stdout_line_cap,
-                full_output=full_output,
-            )
+            out, was_truncated = truncate_for_display(res.stdout, max_chars=max_output_chars, max_lines=stdout_line_cap, full_output=full_output)
             print_section(console, title="stdout", body=out)
-            if truncated:
-                print_status_line(console, "stdout truncated. Use --full to view full output.", tone="warning")
+            if was_truncated:
+                print_status_line(console, "stdout truncated. Use --full for full output.", tone="warning")
         if show_output and res.stderr.strip():
-            err, truncated = truncate_for_display(
-                res.stderr,
-                max_chars=max_output_chars,
-                max_lines=stderr_line_cap,
-                full_output=full_output,
-            )
+            err, was_truncated = truncate_for_display(res.stderr, max_chars=max_output_chars, max_lines=stderr_line_cap, full_output=full_output)
             print_section(console, title="stderr", body=err)
-            if truncated:
-                print_status_line(console, "stderr truncated. Use --full to view full output.", tone="warning")
-        print_section(console, title="Command Result", body=f"Run complete executed=cmd ok={res.ok} exit_code={res.exit_code}")
-        return res.ok
+            if was_truncated:
+                print_status_line(console, "stderr truncated. Use --full for full output.", tone="warning")
+        return bool(res.ok)
 
     return True
 
@@ -138,18 +88,12 @@ def run_once(
     console,
     print_session_boundary,
     print_kv_table,
-    print_route_decision,
     print_section,
     print_status_line,
     print_answer_path,
     print_cli_notice,
     print_runtime_error,
     session_id: str,
-    workspace_once,
-    outputs_once,
-    structure_once,
-    extract_depth,
-    snapshot_runner: Optional[Callable[..., None]] = None,
     llm_cls=LLM,
     memory_cls=LongTermMemory,
 ) -> None:
@@ -159,23 +103,9 @@ def run_once(
     load_project_dotenv()
 
     paths = Paths.resolve()
-    policy_path = (paths.home / "agent" / "config" / "policy.json").resolve()
-    policy = Policy.load(str(policy_path))
-
-    max_runtime_seconds = policy.max_runtime_seconds()
-    max_output_chars = policy.max_output_chars()
-    max_steps_per_plan = policy.max_steps_per_plan()
-    max_response_chars = policy.max_answer_chars()
-    max_summary_lines = policy.max_answer_lines()
-    max_completion_tokens = max(64, policy.max_completion_tokens())
-    stdout_line_cap = max(1, policy.max_stdout_lines())
-    stderr_line_cap = max(1, policy.max_stderr_lines())
-
+    policy = Policy.load(str((paths.home / "agent" / "config" / "policy.json").resolve()))
     api_key = get_openai_api_key()
-    route_mode = "llm"
-    handler_id = ""
     llm_used = False
-    actionable_steps = 0
     executed_steps = 0
 
     def _finish(outcome: str, *, error_type: str = "", error_message: str = "") -> None:
@@ -184,133 +114,148 @@ def run_once(
             started=started,
             session_id=session_id,
             command="run",
-            route_mode=route_mode,
-            handler_id=handler_id,
+            route_mode="llm",
             outcome=outcome,
             llm_used=llm_used,
-            actionable_steps=actionable_steps,
             executed_steps=executed_steps,
             error_type=error_type,
             error_message=error_message,
         )
         print_session_boundary(console, command="run", run_id=run_id, phase="end")
 
-    memory = memory_cls(chroma_dir=str(paths.chroma_dir), collection_name="cg_openclaw_memory", openai_api_key=api_key)
-
-    decision = decide_route(prompt, policy)
-    if decision.mode == "deterministic" and decision.handler_id:
-        route_mode = "deterministic"
-        handler_id = decision.handler_id
-        print_route_decision(console, decision)
-        ctx = DeterministicContext(
-            workspace_once=workspace_once,
-            outputs_once=outputs_once,
-            structure_once=structure_once,
-            extract_depth=extract_depth,
-            snapshot_runner=snapshot_runner,
-        )
-        ok, detail = execute_tool(decision.handler_id, prompt, ctx)
-        print_answer_path(console, "command", f"deterministic handler executed: {decision.handler_id}")
-        save_memory(memory, user_text=prompt, assistant_text=f"deterministic handler={decision.handler_id} detail={detail}", mode="run", kind_override="task_result", extra_metadata={"route_mode": "deterministic", "handler_id": decision.handler_id})
-        if not ok:
-            print_cli_notice(console, title="Deterministic Handler Failed", level="error", message=detail, help_line="Rephrase the request or fall back to an LLM-planned run.")
-            print_run_summary(print_section, console, route_mode=route_mode, decision_reason=decision.reason, outcome="handler_failed", llm_used=False, handler_id=handler_id)
-            _finish("handler_failed", error_type="deterministic_handler", error_message=detail)
-            raise SystemExit(1)
-        print_run_summary(print_section, console, route_mode=route_mode, decision_reason=decision.reason, outcome="success", llm_used=False, handler_id=handler_id)
-        _finish("success")
-        return
-
     if not api_key:
-        print_cli_notice(console, title="LLM Required", level="warning", message="No deterministic route matched and OPENAI_API_KEY is not set.", help_line="Set OPENAI_API_KEY or use an obvious deterministic request like 'show workspace files'.")
-        print_run_summary(print_section, console, route_mode=route_mode, decision_reason=decision.reason, outcome="llm_required", llm_used=False)
+        print_cli_notice(
+            console,
+            title="LLM Required",
+            level="warning",
+            message="OPENAI_API_KEY is not set.",
+            help_line="Set OPENAI_API_KEY and retry.",
+        )
         _finish("llm_required")
         return
 
-    retrieved_text, retrieved_count = memory_context(memory, prompt, policy)
-    print_kv_table(console, title="CAD Guardian Agent", rows=[("Prompt", prompt), ("Memory", f"retrieved={retrieved_count} | sent_chars={len(retrieved_text)}"), ("Runtime", limits_summary(policy))])
-    print_route_decision(console, decision)
+    memory = memory_cls(chroma_dir=str(paths.chroma_dir), collection_name="cg_memory", openai_api_key=api_key)
+    memory_text, memory_count = memory_context(memory, prompt, policy)
+    print_kv_table(
+        console,
+        title="CAD Guardian Agent",
+        rows=[
+            ("Prompt", prompt),
+            ("Mode", "llm-only"),
+            ("Memory", f"retrieved={memory_count}"),
+            ("Runtime", limits_summary(policy)),
+        ],
+    )
 
     llm = llm_cls(api_key=api_key)
     try:
         llm_used = True
-        reply = llm.ask(prompt, retrieved_text, model=policy.llm_model(), max_completion_tokens=max_completion_tokens)
+        reply = llm.ask(
+            prompt,
+            memory_text,
+            model=policy.llm_model(),
+            max_completion_tokens=max(64, policy.max_completion_tokens()),
+            task_mode="run",
+        )
     except Exception as e:
-        print_runtime_error(console, "LLM Error", e, "Check OPENAI_API_KEY, internet/DNS, and policy allow_domains settings.")
-        print_run_summary(print_section, console, route_mode=route_mode, decision_reason=decision.reason, outcome="llm_error", llm_used=True)
+        print_runtime_error(console, "LLM Error", e, "Check API key, network, and model availability.")
         _finish("llm_error", error_type=type(e).__name__, error_message=str(e))
         return
 
-    if len(reply.plan) > max_steps_per_plan:
-        reply.plan = reply.plan[:max_steps_per_plan]
-        print_status_line(console, f"Plan truncated to {max_steps_per_plan} steps.", tone="warning")
+    if len(reply.plan) > policy.max_steps_per_plan():
+        reply.plan = reply.plan[: policy.max_steps_per_plan()]
+        print_status_line(console, f"Plan truncated to {policy.max_steps_per_plan()} step(s).", tone="warning")
 
-    step_lines = [f"{i}. {_step_preview_text(s)}" for i, s in enumerate(reply.plan, 1)] or ["(no plan steps returned)"]
-    print_section(console, title="Execution Plan", body="\n".join(step_lines))
+    answer, truncated = truncate_for_display(
+        reply.answer,
+        max_chars=policy.max_answer_chars(),
+        max_lines=policy.max_answer_lines(),
+        full_output=full_output,
+    )
+    print_section(console, title="Answer", body=answer)
+    if truncated:
+        print_status_line(console, "Answer truncated. Use --full to expand.", tone="warning")
 
-    answer_display, answer_truncated = truncate_for_display(reply.answer, max_chars=max_response_chars, max_lines=max_summary_lines, full_output=full_output)
-    print_section(console, title="Answer", body=answer_display)
-    if answer_truncated:
-        print_status_line(console, "Answer truncated. Use --full or raise answer limits in policy.", tone="warning")
+    plan_lines = [f"{i}. {_step_preview(step)}" for i, step in enumerate(reply.plan, 1)] or ["(no plan steps)"]
+    print_section(console, title="Execution Plan", body="\n".join(plan_lines))
 
-    save_memory(memory, user_text=prompt, assistant_text=reply.answer, mode="run", extra_metadata={"route_mode": "llm"})
+    save_memory(memory, user_text=prompt, assistant_text=reply.answer, mode="run")
 
-    actionable = _actionable_steps(reply.plan)
-    actionable_steps = len(actionable)
+    actionable = [x for x in reply.plan if str(getattr(x, "type", "")) in {"cmd", "write"}]
     if not actionable:
-        print_answer_path(console, "llm", "LLM answer returned notes only; no executable actions in plan")
-        save_memory(memory, user_text=prompt, assistant_text="run_outcome=no_actionable executed_steps=0 actionable_steps=0", mode="run", kind_override="task_result", extra_metadata={"route_mode": "llm"})
-        print_cli_notice(console, title="No Actionable Steps", level="warning", message="The model returned notes only; nothing can be executed.", help_line='Try a direct action request, e.g. cg run "list files in workspace".', example_line='cg ask "What command should I run to inspect current files?"')
-        print_run_summary(print_section, console, route_mode=route_mode, decision_reason=decision.reason, outcome="no_actionable", llm_used=True)
+        print_cli_notice(
+            console,
+            title="No Actionable Steps",
+            level="warning",
+            message="The model returned notes only.",
+            help_line='Try a direct action request, for example: cg run "create a status summary file"',
+        )
+        print_answer_path(console, "llm", "LLM returned advisory content only.")
         _finish("no_actionable")
         return
 
-    mode = policy.execution_mode()
-    max_actions = max(1, policy.max_actions_per_run())
-    selected = actionable[:1] if mode == "single_step" else actionable[:max_actions]
-
-    if _requires_apply_confirmation(prompt, selected) and not _has_confirm_token(prompt):
-        print_cli_notice(console, title="Confirmation Required", level="warning", message="Apply-style request detected. No changes were executed.", help_line="Re-run with confirm:yes to apply the proposed actions.", example_line='cg run "rename files to snake_case in workspace confirm:yes"')
-        print_answer_path(console, "llm", "LLM generated an apply plan; execution blocked until explicit confirmation")
-        save_memory(memory, user_text=prompt, assistant_text="run_outcome=confirmation_required executed_steps=0", mode="run", kind_override="task_result", extra_metadata={"route_mode": "llm"})
-        print_run_summary(print_section, console, route_mode=route_mode, decision_reason=decision.reason, outcome="confirmation_required", llm_used=True)
+    if _requires_confirmation(prompt, actionable):
+        print_cli_notice(
+            console,
+            title="Confirmation Required",
+            level="warning",
+            message="Apply-style request detected; no changes executed.",
+            help_line="Re-run with confirm:yes to execute steps.",
+            example_line='cg run "rename files to snake_case confirm:yes"',
+        )
+        print_answer_path(console, "llm", "Execution blocked until explicit confirmation token.")
         _finish("confirmation_required")
         return
 
-    if mode == "continue_until_done" and len(actionable) > len(selected):
-        print_status_line(console, f"Execution capped actionable_steps={len(actionable)} -> executing={len(selected)} (max_actions_per_run={max_actions})", tone="warning")
+    mode = policy.execution_mode()
+    limit = 1 if mode == "single_step" else min(policy.max_actions_per_run(), len(actionable))
+    selected = actionable[: max(1, limit)]
+    if mode == "single_step" and len(actionable) > 1:
+        print_status_line(console, "Single-step mode: executing first actionable step only.", tone="info")
 
     executor = Executor(policy=policy, workspace=paths.workspace)
-    outcome = "completed"
-    outcome_detail = ""
+    outcome = "success"
+    detail = ""
     for i, step in enumerate(selected, 1):
-        print_status_line(console, f"Executing step {i}/{len(selected)} {_step_preview_text(step)}", tone="info")
+        print_status_line(console, f"Executing step {i}/{len(selected)}: {_step_preview(step)}", tone="info")
         try:
             executed_steps += 1
-            ok = _execute_step(executor, step, max_runtime_seconds=max_runtime_seconds, max_output_chars=max_output_chars, stdout_line_cap=stdout_line_cap, stderr_line_cap=stderr_line_cap, full_output=full_output, print_section=print_section, print_status_line=print_status_line, console=console)
+            ok = _execute_step(
+                executor,
+                step,
+                timeout_s=policy.max_runtime_seconds(),
+                full_output=full_output,
+                max_output_chars=policy.max_output_chars(),
+                stdout_line_cap=max(1, policy.max_stdout_lines()),
+                stderr_line_cap=max(1, policy.max_stderr_lines()),
+                print_section=print_section,
+                print_status_line=print_status_line,
+                console=console,
+            )
             if not ok:
                 outcome = "command_failed"
-                print_cli_notice(console, title="Execution Stopped", level="warning", message="A command failed; stopping remaining steps.", help_line="Re-run with --full to inspect stdout/stderr, then retry.")
                 break
         except PolicyViolation as e:
             outcome = "policy_violation"
+            detail = str(e)
             rule = getattr(e, "rule", "") or "unknown_policy_rule"
-            outcome_detail = f"{str(e)} (rule={rule})"
-            print_cli_notice(console, title="Policy Violation", level="error", message=str(e), help_line=f"Violated policy: {rule} (config/policy.json).", example_line="cg doctor --verbose")
+            insight = policy_violation_insight(rule=rule, message=str(e), attempted_action=_step_preview(step))
+            print_cli_notice(
+                console,
+                title="Policy Violation",
+                level="error",
+                message=str(e),
+                help_line=insight["help_line"],
+                example_line=insight["example_line"],
+            )
+            print_section(console, title="Policy Change Insight", body=insight["body"])
             break
         except Exception as e:
             outcome = "execution_error"
-            outcome_detail = str(e)
-            print_runtime_error(console, "Execution Error", e, "Re-run with --full and inspect command/output details.")
+            detail = str(e)
+            print_runtime_error(console, "Execution Error", e, "Re-run with --full for diagnostics.")
             break
 
-    if mode == "single_step" and len(actionable) > 1:
-        print_status_line(console, "Stopped after 1 actionable step (policy: execution_mode=single_step).", tone="info")
-
-    print_answer_path(console, "both", f"LLM planned actions; executor ran {executed_steps} step(s) under policy")
-    task_result = f"run_outcome={outcome} executed_steps={executed_steps}/{len(selected)} actionable_steps={len(actionable)} execution_mode={mode}"
-    if outcome_detail:
-        task_result += f" detail={cap_chars(outcome_detail, 300)}"
-    save_memory(memory, user_text=prompt, assistant_text=task_result, mode="run", kind_override="task_result", extra_metadata={"route_mode": "llm"})
-    print_run_summary(print_section, console, route_mode=route_mode, decision_reason=decision.reason, outcome="success" if outcome == "completed" else outcome, llm_used=True, handler_id=handler_id)
-    _finish("success" if outcome == "completed" else outcome, error_message=outcome_detail)
+    print_answer_path(console, "both", f"LLM planned actions; executor ran {executed_steps} step(s).")
+    save_memory(memory, user_text=prompt, assistant_text=f"run_outcome={outcome} executed_steps={executed_steps}", mode="run", kind="task_result")
+    _finish(outcome, error_message=cap_chars(detail, 300))

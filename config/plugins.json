@@ -1,8 +1,0 @@
-{
-  "dashboard": true,
-  "eval": true,
-  "snapshots": true,
-  "metrics": true,
-  "tasks": true,
-  "fetch_drive": true
-}

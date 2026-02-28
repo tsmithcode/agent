@@ -20,9 +20,6 @@
   "command_allowlist": [
     "ls",
     "pwd",
-    "whoami",
-    "id",
-    "uname",
     "cat",
     "head",
     "tail",
@@ -40,8 +37,7 @@
     "pip3",
     "curl",
     "wget",
-    "echo",
-    "cg"
+    "echo"
   ],
   "command_denylist": [
     "sudo",
@@ -84,40 +80,26 @@
       "pypi.org",
       "files.pythonhosted.org",
       "github.com",
-      "raw.githubusercontent.com",
-      "registry.npmjs.org"
-    ]
-  },
-  "routing_controls": {
-    "enable_deterministic_routing": true,
-    "deterministic_confidence_threshold": 0.92,
-    "allowed_handlers": [],
-    "force_llm_patterns": [
-      "\\bexplain\\b",
-      "\\bdesign\\b",
-      "\\bbrainstorm\\b",
-      "\\bwhy\\b",
-      "\\bhow\\b"
+      "raw.githubusercontent.com"
     ]
   },
   "execution_limits": {
-    "max_runtime_seconds": 300,
+    "max_runtime_seconds": 180,
     "max_output_chars": 8000,
     "max_file_write_bytes": 10000000,
-    "max_steps_per_plan": 30,
+    "max_steps_per_plan": 10,
     "max_completion_tokens": 1200,
-    "max_memory_items": 8,
-    "max_memory_chars": 10000,
-    "max_answer_chars": 6000,
+    "max_memory_items": 5,
+    "max_memory_chars": 6000,
+    "max_answer_chars": 5000,
     "max_answer_lines": 20,
     "max_stdout_lines": 80,
     "max_stderr_lines": 80,
-    "max_context_files": 500,
-    "max_context_file_chars": 2000,
-    "max_context_chars": 30000,
+    "max_context_files": 300,
+    "max_context_chars": 20000,
     "include_git_status": true,
     "execution_mode": "continue_until_done",
-    "max_actions_per_run": 5,
+    "max_actions_per_run": 3,
     "llm_model": "gpt-4o-mini"
   }
 }

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
-
-from chromadb import PersistentClient
-from chromadb.utils import embedding_functions
+from pathlib import Path
+from typing import Optional
 
 
 @dataclass
@@ -17,13 +16,10 @@ class MemoryItem:
 
 
 class LongTermMemory:
-    """
-    Persistent memory store backed by ChromaDB on disk.
+    """Lightweight JSONL memory store.
 
-    - Primary mode: semantic retrieval via embeddings (OpenAI) when API key is available.
-    - Fallback mode: recent-memory retrieval (timestamp-sorted) when embeddings are unavailable.
-
-    Stored at: ~/host_ai/memory/chroma
+    This keeps the same public API as the previous memory class while removing
+    heavy vector DB dependencies for the core profile.
     """
 
     def __init__(
@@ -34,9 +30,8 @@ class LongTermMemory:
         *,
         max_doc_chars: int = 4000,
         max_items: int = 5000,
-        prefer_kinds: Optional[List[str]] = None,
+        prefer_kinds: Optional[list[str]] = None,
     ):
-        self.client = PersistentClient(path=chroma_dir)
         self.max_doc_chars = max_doc_chars
         self.max_items = max_items
         self.prefer_kinds = prefer_kinds or [
@@ -46,156 +41,83 @@ class LongTermMemory:
             "task_result",
             "interaction",
         ]
-
-        # If you have an API key, use OpenAI embeddings; otherwise fall back to recent-only mode.
         self.embedder = None
-        if openai_api_key:
-            self.embedder = embedding_functions.OpenAIEmbeddingFunction(
-                api_key=openai_api_key,
-                model_name="text-embedding-3-small",
-            )
+        self._file = Path(chroma_dir).resolve() / f"{collection_name}.jsonl"
+        self._file.parent.mkdir(parents=True, exist_ok=True)
+        if not self._file.exists():
+            self._file.write_text("", encoding="utf-8")
 
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name,
-            embedding_function=self.embedder,
-        )
-
-    def _now_utc_iso(self) -> str:
+    def _now_iso(self) -> str:
         return datetime.now(timezone.utc).isoformat()
 
-    def _cap(self, s: str) -> str:
-        if len(s) <= self.max_doc_chars:
-            return s
-        return s[: self.max_doc_chars] + "...(truncated)"
+    def _cap(self, text: str) -> str:
+        if len(text) <= self.max_doc_chars:
+            return text
+        return text[: self.max_doc_chars] + "...(truncated)"
 
-    def _hash_text(self, s: str) -> str:
-        return hashlib.sha256(s.encode("utf-8", errors="ignore")).hexdigest()
+    def _read_all(self) -> list[dict]:
+        rows: list[dict] = []
+        for line in self._file.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+                if isinstance(item, dict):
+                    rows.append(item)
+            except Exception:
+                continue
+        return rows
 
-    def _dedupe_exists(self, content_hash: str) -> bool:
-        # Attempt a metadata filter query by hash (fast if supported).
-        try:
-            res = self.collection.get(where={"content_hash": content_hash}, limit=1)
-            return bool(res and res.get("ids") and len(res["ids"]) > 0)
-        except Exception:
-            return False
-
-    def _prune_if_needed(self) -> None:
-        # Keep the collection bounded to avoid unbounded disk/snapshot growth.
-        try:
-            count = self.collection.count()
-            if count <= self.max_items:
-                return
-
-            # Fetch a batch of items and delete the oldest by ts_utc if present.
-            # Chroma doesn't guarantee server-side sort; we do a client-side sort on a pulled window.
-            over = count - self.max_items
-            pull = min(max(over * 2, 200), 2000)
-
-            got = self.collection.get(include=["metadatas"], limit=pull)
-            ids = got.get("ids", []) or []
-            metas = got.get("metadatas", []) or []
-
-            def ts(m: dict) -> str:
-                return str(m.get("ts_utc") or "")
-
-            pairs = list(zip(ids, metas))
-            pairs.sort(key=lambda p: ts(p[1]) or "")
-
-            to_delete = [pid for pid, _ in pairs[:over]]
-            if to_delete:
-                self.collection.delete(ids=to_delete)
-        except Exception:
-            # Never let pruning break the agent.
-            return
+    def _write_all(self, rows: list[dict]) -> None:
+        payload = "\n".join(json.dumps(r, ensure_ascii=True) for r in rows)
+        self._file.write_text(payload + ("\n" if payload else ""), encoding="utf-8")
 
     def add(self, mem_id: str, text: str, metadata: dict) -> None:
         text_capped = self._cap(text)
+        content_hash = hashlib.sha256(text_capped.encode("utf-8", errors="ignore")).hexdigest()
         meta = dict(metadata or {})
-
-        # Ensure timestamp for fallback sorting
-        meta.setdefault("ts_utc", self._now_utc_iso())
-
-        # Add hash for dedupe
-        content_hash = self._hash_text(text_capped)
+        meta.setdefault("ts_utc", self._now_iso())
         meta.setdefault("content_hash", content_hash)
 
-        # Skip if already stored (prevents duplicate “Create README…” spam)
-        if self._dedupe_exists(content_hash):
+        rows = self._read_all()
+        if any((r.get("metadata") or {}).get("content_hash") == content_hash for r in rows):
             return
 
-        self.collection.add(
-            ids=[mem_id],
-            documents=[text_capped],
-            metadatas=[meta],
-        )
-
-        # Bound DB growth
-        self._prune_if_needed()
+        rows.append({"id": mem_id, "text": text_capped, "metadata": meta})
+        if len(rows) > self.max_items:
+            rows = sorted(rows, key=lambda r: str((r.get("metadata") or {}).get("ts_utc") or ""), reverse=True)[: self.max_items]
+        self._write_all(rows)
 
     def query(
         self,
         text: str,
         n_results: int = 5,
         *,
-        kinds: Optional[List[str]] = None,
+        kinds: Optional[list[str]] = None,
         allow_interaction_fallback: bool = True,
-    ) -> List[MemoryItem]:
-        kinds = kinds or self.prefer_kinds
-
-        # 1) Embedding retrieval (preferred)
-        if self.embedder is not None:
-            # Two-pass: prefer high-signal kinds first, then fill with interactions.
-            items: List[MemoryItem] = []
-
-            for k in kinds:
-                try:
-                    res = self.collection.query(
-                        query_texts=[text],
-                        n_results=n_results,
-                        where={"kind": k},
-                    )
-                except Exception:
-                    continue
-
-                ids = (res.get("ids") or [[]])[0]
-                docs = (res.get("documents") or [[]])[0]
-                metas = (res.get("metadatas") or [[]])[0]
-
-                for i in range(len(ids)):
-                    if len(items) >= n_results:
-                        break
-                    items.append(MemoryItem(id=ids[i], text=docs[i], metadata=metas[i]))
-
-                if len(items) >= n_results:
-                    break
-
-            return items
-
-        # 2) Fallback: recent-memory retrieval without embeddings
-        if not allow_interaction_fallback:
+    ) -> list[MemoryItem]:
+        rows = self._read_all()
+        if not rows:
             return []
 
-        try:
-            got = self.collection.get(include=["documents", "metadatas"], limit=max(n_results * 10, 50))
-            ids = got.get("ids", []) or []
-            docs = got.get("documents", []) or []
-            metas = got.get("metadatas", []) or []
+        wanted = set(kinds or self.prefer_kinds)
+        query_tokens = {t for t in text.lower().split() if len(t) >= 3}
 
-            # Filter to requested kinds if present
-            triples = []
-            for i in range(len(ids)):
-                m = metas[i] or {}
-                kind = m.get("kind")
-                if kind and kind not in kinds:
-                    continue
-                triples.append((ids[i], docs[i], m))
+        scored: list[tuple[int, str, dict, str]] = []
+        for r in rows:
+            meta = dict(r.get("metadata") or {})
+            kind = str(meta.get("kind") or "")
+            if wanted and kind and kind not in wanted and not allow_interaction_fallback:
+                continue
+            body = str(r.get("text") or "")
+            tokens = set(body.lower().split())
+            score = len(query_tokens.intersection(tokens))
+            ts = str(meta.get("ts_utc") or "")
+            scored.append((score, ts, meta, body))
 
-            def ts(m: dict) -> str:
-                return str(m.get("ts_utc") or "")
-
-            triples.sort(key=lambda t: ts(t[2]), reverse=True)
-            triples = triples[:n_results]
-
-            return [MemoryItem(id=a, text=b, metadata=c) for a, b, c in triples]
-        except Exception:
-            return []
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        out: list[MemoryItem] = []
+        for idx, (_score, _ts, meta, body) in enumerate(scored[: max(1, n_results)]):
+            out.append(MemoryItem(id=str(idx), text=body, metadata=meta))
+        return out
