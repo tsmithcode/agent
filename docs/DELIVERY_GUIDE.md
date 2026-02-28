@@ -138,6 +138,6 @@ cg do "show files"
 
 ## Notes
 
-- Full feature set is enabled by default. Toggle optional plugins in `config/plugins.json`.
+- Plugin config defaults to enabled, but command availability is contract-based (enabled in config + required files + required dependencies).
 - Dashboard command appears only when dashboard plugin contract is satisfied (files + deps).
 - Do not ship API keys. Customer sets `OPENAI_API_KEY` locally.

@@ -61,13 +61,12 @@ For full add-on dependencies:
 python -m pip install -e .[full]
 ```
 
-After install:
+After base install (`pipx install .` or `pip install -e .`):
 
 ```bash
 cg --help
 cg setup
 cg do "show files"
-cg tasks list
 cg guide --mode starter
 cg status --limit 200
 cg doctor
@@ -75,6 +74,12 @@ cg policy list
 cg policy show
 cg policy use base --yes
 cg inspect structure
+```
+
+After full add-on install (`.[full]`):
+
+```bash
+cg tasks list
 cg dev snaps
 cg dev eval --suite core
 cg dev metrics --format json --limit 1000
@@ -149,11 +154,11 @@ cd /home/cg-ai/agent/core
 | `cg ask "<question>" --ctx` | Shows the exact LLM context payload preview | `cg ask "What does policy enforce?" --ctx` |
 | `cg ask "<question>" --full` | Disables answer truncation for ask mode | `cg ask "Describe architecture" --full` |
 | `cg setup` | Runs first-time onboarding checks and baseline setup | `cg setup` |
-| `cg fetch "<drive-folder-link>"` | Downloads a Google Drive folder into `workspace/downloads/<folder>` using built-in downloader (no external gdrive package dependency) and reveals it for console/SSH workflows | `cg fetch "https://drive.google.com/drive/folders/<id>" --folder incoming-assets` |
-| `cg fetch "<drive-folder-link>" -d 4` | Controls printed folder-tree depth after download | `cg fetch "<link>" --folder data -d 4` |
-| `cg fetch "<drive-folder-link>" --no-open` | Skip GUI open and print terminal path only | `cg fetch "<link>" --folder data --no-open` |
-| `cg tasks list` | Lists built-in beginner-friendly templates | `cg tasks list` |
-| `cg tasks run <name>` | Runs a built-in template workflow | `cg tasks run starter-check` |
+| `cg fetch "<drive-folder-link>"` | Downloads a Google Drive folder into `workspace/downloads/<folder>` using built-in downloader and reveals it for console/SSH workflows (needs `fetch_drive` plugin) | `cg fetch "https://drive.google.com/drive/folders/<id>" --folder incoming-assets` |
+| `cg fetch "<drive-folder-link>" -d 4` | Controls printed folder-tree depth after download (needs `fetch_drive` plugin) | `cg fetch "<link>" --folder data -d 4` |
+| `cg fetch "<drive-folder-link>" --no-open` | Skip GUI open and print terminal path only (needs `fetch_drive` plugin) | `cg fetch "<link>" --folder data --no-open` |
+| `cg tasks list` | Lists built-in beginner-friendly templates (needs `tasks` plugin) | `cg tasks list` |
+| `cg tasks run <name>` | Runs a built-in template workflow (needs `tasks` plugin) | `cg tasks run starter-check` |
 | `cg guide --mode starter|power` | Shows guided workflows for beginner or power-user operation | `cg guide --mode starter` |
 | `cg status --limit 200` | Shows success metrics + recommendations from telemetry | `cg status --limit 200` |
 | `cg doctor` | Runs setup and environment diagnostics | `cg doctor` |

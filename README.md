@@ -43,12 +43,13 @@ pipx install '.[full]'
 
 Then run (short notes):
 
+Core-safe commands:
+
 ```bash
 cg --help  # full command list and flags
 cg setup  # env checks + baseline policy
 cg guide --mode starter  # beginner flow
 cg do "show files"  # auto-route to safe handler
-cg tasks list  # built-in templates (tasks plugin)
 cg guide --mode starter  # repeatable quick flow
 cg status --limit 200  # usage summary + tips
 cg doctor  # diagnostics
@@ -57,6 +58,12 @@ cg policy list  # available tiers
 cg policy show  # active policy + expectation
 cg policy use base --yes  # apply baseline tier
 cg inspect structure  # solution tree
+```
+
+With full add-on install (`.[full]`) and matching plugin contracts:
+
+```bash
+cg tasks list  # built-in templates (tasks plugin)
 cg dev snaps  # snapshots plugin
 cg dev eval --suite core  # eval plugin
 cg dev metrics --format json --limit 1000  # metrics plugin
@@ -72,6 +79,8 @@ Routing behavior:
   - `cg run "design architecture"` -> LLM
 
 ## Quick Usage
+
+Assumes full add-on install (`.[full]`) and satisfied plugin contracts.
 
 ```bash
 cg ask "What does this app do right now?"
