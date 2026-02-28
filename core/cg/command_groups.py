@@ -166,42 +166,44 @@ def register_groups(
             help_line="Set the value to true and rerun if you want this feature.",
         )
         raise SystemExit(2)
-    @tasks_app.command("list")
-    def tasks_list():
-        require_plugin("tasks", "Tasks Disabled")
-        print_section(console, title="Task Templates", body=(
-            "starter-check: Run setup flow and health checks\n"
-            "workspace-overview: Show files and summarize workspace via ask\n"
-            "project-faq: Ask architecture/policy FAQ\n"
-            "health-report: Generate metrics and status summary\n"
-            "download-drive-folder: Prompt for Drive folder link and fetch into workspace"
-        ))
 
-    @tasks_app.command("run")
-    def tasks_run(name: str = typer.Argument(..., help="Template name from `cg tasks list`.")):
-        require_plugin("tasks", "Tasks Disabled")
-        n = (name or "").strip().lower()
-        if n == "starter-check":
-            do_setup(True, True)
-            return
-        if n == "workspace-overview":
-            workspace_once(console, None)
-            do_ask("Summarize what is in my workspace and what I can do next.", False, False)
-            return
-        if n == "project-faq":
-            do_ask("What does this app do, what are limits, and what commands should I use next?", False, False)
-            return
-        if n == "health-report":
-            dev_metrics(fmt="json", limit=2000)
-            do_status(200)
-            return
-        if n == "download-drive-folder":
-            link = typer.prompt("Google Drive folder link").strip()
-            folder = typer.prompt("Folder name in workspace/downloads").strip()
-            do_fetch_template(link, folder, 3, True)
-            return
-        print_cli_notice(console, title="Unknown Task Template", level="error", message=f"Unsupported template: {name}", help_line="Run cg tasks list to see valid templates.")
-        raise SystemExit(2)
+    if plugin_enabled(plugins, "tasks"):
+        @tasks_app.command("list")
+        def tasks_list():
+            print_section(console, title="Task Templates", body=(
+                "starter-check: Run setup flow and health checks\n"
+                "workspace-overview: Show files and summarize workspace via ask\n"
+                "project-faq: Ask architecture/policy FAQ\n"
+                "health-report: Generate metrics and status summary\n"
+                "download-drive-folder: Prompt for Drive folder link and fetch into workspace"
+            ))
+
+        @tasks_app.command("run")
+        def tasks_run(name: str = typer.Argument(..., help="Template name from `cg tasks list`.")):
+            n = (name or "").strip().lower()
+            if n == "starter-check":
+                do_setup(True, True)
+                return
+            if n == "workspace-overview":
+                workspace_once(console, None)
+                do_ask("Summarize what is in my workspace and what I can do next.", False, False)
+                return
+            if n == "project-faq":
+                do_ask("What does this app do, what are limits, and what commands should I use next?", False, False)
+                return
+            if n == "health-report":
+                require_plugin("metrics", "Metrics Disabled")
+                dev_metrics(fmt="json", limit=2000)
+                do_status(200)
+                return
+            if n == "download-drive-folder":
+                require_plugin("fetch_drive", "Fetch Disabled")
+                link = typer.prompt("Google Drive folder link").strip()
+                folder = typer.prompt("Folder name in workspace/downloads").strip()
+                do_fetch_template(link, folder, 3, True)
+                return
+            print_cli_notice(console, title="Unknown Task Template", level="error", message=f"Unsupported template: {name}", help_line="Run cg tasks list to see valid templates.")
+            raise SystemExit(2)
 
     @policy_app.command("list")
     def policy_list():
@@ -259,83 +261,83 @@ def register_groups(
         print_section(console, title="Applied Limits", body=policy_summary_line(data))
         print_section(console, title="Tier Expectation", body=policy_expectation_line(t, data))
 
-    @dev_app.command("snaps")
-    def dev_snaps():
-        require_plugin("snapshots", "Snapshots Disabled")
-        run_id = start_end_session("dev.snaps")
-        try:
-            run_snapshot_tests(console=console, print_cli_notice=print_cli_notice, print_section=print_section, log_event=log_event_wrapper)
-        finally:
-            print_session_boundary(console, command="dev.snaps", run_id=run_id, phase="end")
-
-    @dev_app.command("metrics")
-    def dev_metrics(fmt: str = typer.Option("json", "--format", help="Summary report format: json or csv."), limit: int = typer.Option(0, "--limit", min=0, help="Optional tail limit of events (0 = all).")):
-        require_plugin("metrics", "Metrics Disabled")
-        f = (fmt or "json").strip().lower()
-        if f not in {"json", "csv"}:
-            print_cli_notice(console, title="Invalid Format", level="error", message=f"Unsupported format: {fmt}", help_line="Use --format json or --format csv.")
-            raise SystemExit(2)
-        paths = Paths.resolve()
-        events = read_events(paths.logs_dir, limit=(limit or None))
-        summary = summarize_events(events)
-        out_dir = (paths.workspace / "reports" / "metrics" / datetime.now().strftime("%Y%m%d-%H%M%S")).resolve()
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_file = out_dir / f"metrics-summary.{f}"
-        write_summary_json(out_file, summary) if f == "json" else write_summary_csv(out_file, summary)
-        print_cli_notice(console, title="Metrics Report Ready", level="success", message=f"Saved: {out_file}", help_line=f"events_total={summary.get('events_total', 0)} | llm_used_rate={summary.get('llm_used_rate', 0.0)}")
-
-    @dev_app.command("dashboard")
-    def dev_dashboard(live: bool = typer.Option(True, "--live", help="Enable auto-refresh while dashboard is open."), refresh_seconds: int = typer.Option(5, "--refresh-seconds", min=1, max=60, help="Auto-refresh interval."), port: int = typer.Option(8501, "--port", min=1024, max=65535, help="Dashboard port."), event_limit: int = typer.Option(5000, "--event-limit", min=100, max=50000, help="Max telemetry events loaded.")):
-        require_plugin("dashboard", "Dashboard Disabled")
-        run_id = start_end_session("dev.dashboard")
-        try:
-            paths = Paths.resolve()
+    if plugin_enabled(plugins, "snapshots"):
+        @dev_app.command("snaps")
+        def dev_snaps():
+            run_id = start_end_session("dev.snaps")
             try:
-                import streamlit  # noqa: F401
-            except Exception:
-                print_cli_notice(console, title="Missing Dependency", level="error", message="Streamlit is not installed.", help_line="Install with: pip install streamlit")
-                raise SystemExit(1)
-            app_path = (paths.agent_root / "core" / "cg" / "dashboard_app.py").resolve()
-            policy_path = (paths.agent_root / "config" / "policy.json").resolve()
-            cmd = [sys.executable, "-m", "streamlit", "run", str(app_path), "--server.headless", "true", "--server.port", str(port), "--", "--workspace", str(paths.workspace), "--logs-dir", str(paths.logs_dir), "--chroma-dir", str(paths.chroma_dir), "--policy", str(policy_path), "--live", "1" if live else "0", "--refresh-seconds", str(refresh_seconds), "--event-limit", str(event_limit)]
-            subprocess.Popen(cmd, cwd=str(paths.agent_root))
-            url = f"http://127.0.0.1:{port}"
-            open_target(url)
-            print_cli_notice(console, title="Dashboard Started", level="success", message=f"Live dashboard available at {url}", help_line=f"live={live} refresh_seconds={refresh_seconds} event_limit={event_limit}")
-        finally:
-            print_session_boundary(console, command="dev.dashboard", run_id=run_id, phase="end")
+                run_snapshot_tests(console=console, print_cli_notice=print_cli_notice, print_section=print_section, log_event=log_event_wrapper)
+            finally:
+                print_session_boundary(console, command="dev.snaps", run_id=run_id, phase="end")
 
-    @dev_app.command("eval")
-    def dev_eval(
-        suite: str = typer.Option("core", "--suite", help="Eval suite name."),
-    ):
-        require_plugin("eval", "Eval Disabled")
-        s = (suite or "core").strip().lower()
-        if s != "core":
-            print_cli_notice(console, title="Invalid Eval Suite", level="error", message=f"Unsupported suite: {suite}", help_line="Use --suite core")
-            raise SystemExit(2)
-        paths = Paths.resolve()
-        policy_path = (paths.home / "agent" / "config" / "policy.json").resolve()
-        policy = Policy.load(str(policy_path))
-        handlers = {t.handler_id for t in list_tools()}
-        cases = run_core_eval(
-            select_do_mode=select_do_mode,
-            decide_route=lambda prompt: decide_route_cb(prompt, policy),
-            file_count_probe=file_count_probe,
-            expected_handlers=handlers,
-        )
-        report = save_eval_report(paths, suite="core", cases=cases)
-        passed = sum(1 for c in cases if c.passed)
-        level = "success" if passed == len(cases) else "warning"
-        print_cli_notice(
-            console,
-            title="Eval Report Ready",
-            level=level,
-            message=f"Passed {passed}/{len(cases)} checks.",
-            help_line=f"Saved: {report}",
-        )
-        detail = "\n".join(f"- {c.name}: {'PASS' if c.passed else 'FAIL'} ({c.detail})" for c in cases)
-        print_section(console, title="Eval Cases", body=detail)
+    if plugin_enabled(plugins, "metrics"):
+        @dev_app.command("metrics")
+        def dev_metrics(fmt: str = typer.Option("json", "--format", help="Summary report format: json or csv."), limit: int = typer.Option(0, "--limit", min=0, help="Optional tail limit of events (0 = all).")):
+            f = (fmt or "json").strip().lower()
+            if f not in {"json", "csv"}:
+                print_cli_notice(console, title="Invalid Format", level="error", message=f"Unsupported format: {fmt}", help_line="Use --format json or --format csv.")
+                raise SystemExit(2)
+            paths = Paths.resolve()
+            events = read_events(paths.logs_dir, limit=(limit or None))
+            summary = summarize_events(events)
+            out_dir = (paths.workspace / "reports" / "metrics" / datetime.now().strftime("%Y%m%d-%H%M%S")).resolve()
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_file = out_dir / f"metrics-summary.{f}"
+            write_summary_json(out_file, summary) if f == "json" else write_summary_csv(out_file, summary)
+            print_cli_notice(console, title="Metrics Report Ready", level="success", message=f"Saved: {out_file}", help_line=f"events_total={summary.get('events_total', 0)} | llm_used_rate={summary.get('llm_used_rate', 0.0)}")
+
+    if plugin_enabled(plugins, "dashboard"):
+        @dev_app.command("dashboard")
+        def dev_dashboard(live: bool = typer.Option(True, "--live", help="Enable auto-refresh while dashboard is open."), refresh_seconds: int = typer.Option(5, "--refresh-seconds", min=1, max=60, help="Auto-refresh interval."), port: int = typer.Option(8501, "--port", min=1024, max=65535, help="Dashboard port."), event_limit: int = typer.Option(5000, "--event-limit", min=100, max=50000, help="Max telemetry events loaded.")):
+            run_id = start_end_session("dev.dashboard")
+            try:
+                paths = Paths.resolve()
+                try:
+                    import streamlit  # noqa: F401
+                except Exception:
+                    print_cli_notice(console, title="Missing Dependency", level="error", message="Streamlit is not installed.", help_line="Install with: pip install streamlit")
+                    raise SystemExit(1)
+                app_path = (paths.agent_root / "core" / "cg" / "dashboard_app.py").resolve()
+                policy_path = (paths.agent_root / "config" / "policy.json").resolve()
+                cmd = [sys.executable, "-m", "streamlit", "run", str(app_path), "--server.headless", "true", "--server.port", str(port), "--", "--workspace", str(paths.workspace), "--logs-dir", str(paths.logs_dir), "--chroma-dir", str(paths.chroma_dir), "--policy", str(policy_path), "--live", "1" if live else "0", "--refresh-seconds", str(refresh_seconds), "--event-limit", str(event_limit)]
+                subprocess.Popen(cmd, cwd=str(paths.agent_root))
+                url = f"http://127.0.0.1:{port}"
+                open_target(url)
+                print_cli_notice(console, title="Dashboard Started", level="success", message=f"Live dashboard available at {url}", help_line=f"live={live} refresh_seconds={refresh_seconds} event_limit={event_limit}")
+            finally:
+                print_session_boundary(console, command="dev.dashboard", run_id=run_id, phase="end")
+
+    if plugin_enabled(plugins, "eval"):
+        @dev_app.command("eval")
+        def dev_eval(
+            suite: str = typer.Option("core", "--suite", help="Eval suite name."),
+        ):
+            s = (suite or "core").strip().lower()
+            if s != "core":
+                print_cli_notice(console, title="Invalid Eval Suite", level="error", message=f"Unsupported suite: {suite}", help_line="Use --suite core")
+                raise SystemExit(2)
+            paths = Paths.resolve()
+            policy_path = (paths.home / "agent" / "config" / "policy.json").resolve()
+            policy = Policy.load(str(policy_path))
+            handlers = {t.handler_id for t in list_tools()}
+            cases = run_core_eval(
+                select_do_mode=select_do_mode,
+                decide_route=lambda prompt: decide_route_cb(prompt, policy),
+                file_count_probe=file_count_probe,
+                expected_handlers=handlers,
+            )
+            report = save_eval_report(paths, suite="core", cases=cases)
+            passed = sum(1 for c in cases if c.passed)
+            level = "success" if passed == len(cases) else "warning"
+            print_cli_notice(
+                console,
+                title="Eval Report Ready",
+                level=level,
+                message=f"Passed {passed}/{len(cases)} checks.",
+                help_line=f"Saved: {report}",
+            )
+            detail = "\n".join(f"- {c.name}: {'PASS' if c.passed else 'FAIL'} ({c.detail})" for c in cases)
+            print_section(console, title="Eval Cases", body=detail)
 
     @inspect_app.command("structure")
     def inspect_structure(depth: int = typer.Option(4, "-d", min=1, max=10, help="Tree depth (default: 4).")):

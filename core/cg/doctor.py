@@ -17,7 +17,7 @@ from .memory import LongTermMemory
 from .paths import Paths
 from .policy import Policy
 from .tool_registry import list_tools
-from .plugins import load_plugins, plugin_enabled
+from .plugins import load_plugins, plugin_enabled, validate_plugin_contracts
 
 
 def doctor_once(console: Console, *, verbose: bool = False, app=None) -> dict[str, int]:
@@ -79,6 +79,13 @@ def doctor_once(console: Console, *, verbose: bool = False, app=None) -> dict[st
     rows.append(("Plugins file", "PASS" if plugins else "WARN", "config/plugins.json"))
     for name, enabled in plugins.items():
         rows.append((f"Plugin: {name}", "PASS" if enabled else "WARN", "enabled" if enabled else "disabled"))
+    if paths is not None:
+        perrors, pwarns = validate_plugin_contracts(paths, plugins)
+        rows.append(("Plugin contracts", "PASS" if not perrors else "FAIL", "validated"))
+        for w in pwarns:
+            rows.append(("Plugin warning", "WARN", w))
+        for e in perrors:
+            rows.append(("Plugin error", "FAIL", e))
 
     try:
         host = socket.gethostbyname("api.openai.com")

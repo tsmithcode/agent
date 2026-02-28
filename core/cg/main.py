@@ -31,7 +31,7 @@ from .command_groups import (
     register_groups,
 )
 from .app_flow import enforce_runtime_manifest, interactive_start_menu, select_do_mode, status_recommendations
-from .plugins import load_plugins, plugin_enabled
+from .plugins import any_enabled, load_plugins, plugin_enabled
 from .doctor import doctor_once
 from .env import get_openai_api_key, load_project_dotenv
 from .gdrive_fetch import download_public_folder
@@ -54,10 +54,13 @@ tasks_app = typer.Typer(help="Beginner-friendly task templates.")
 console = Console()
 SESSION_ID = str(uuid.uuid4())
 
+PLUGINS = load_plugins(Paths.resolve())
 app.add_typer(inspect_app, name="inspect")
-app.add_typer(dev_app, name="dev")
 app.add_typer(policy_app, name="policy")
-app.add_typer(tasks_app, name="tasks")
+if plugin_enabled(PLUGINS, "tasks"):
+    app.add_typer(tasks_app, name="tasks")
+if any_enabled(PLUGINS, ["dashboard", "eval", "snapshots", "metrics"]):
+    app.add_typer(dev_app, name="dev")
 
 # Set by register_groups; used by run deterministic handler for dev_snaps.
 _SNAPSHOT_RUNNER = None
@@ -320,7 +323,6 @@ def setup(
     finally:
         print_session_boundary(console, command="setup", run_id=run_id, phase="end")
 
-@app.command("fetch")
 def fetch(
     link: str = typer.Argument(..., help="Google Drive folder link to download."),
     folder: str = typer.Option("", "--folder", "-f", help="Destination folder name under workspace/downloads."),
@@ -380,6 +382,10 @@ def fetch(
     finally:
         print_session_boundary(console, command="fetch", run_id=run_id, phase="end")
 
+# Register fetch only when plugin is enabled.
+if plugin_enabled(PLUGINS, "fetch_drive"):
+    app.command("fetch")(fetch)
+
 # Register policy/dev/inspect/tasks command groups.
 _SNAPSHOT_RUNNER = register_groups(
     policy_app=policy_app,
@@ -417,7 +423,7 @@ _SNAPSHOT_RUNNER = register_groups(
 
 def cli() -> None:
     if len(sys.argv) == 2 and sys.argv[1] in {"--help", "-h"}:
-        print_full_help(console)
+        print_full_help(console, plugins=PLUGINS)
         return
     try:
         app(standalone_mode=False)

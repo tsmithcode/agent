@@ -10,6 +10,7 @@ from rich.table import Table
 from rich.text import Text
 
 from .router import RouteDecision
+from .plugins import plugin_enabled
 
 _PATH_RE = re.compile(r"(?P<path>(?:~|\.{1,2}|/)[A-Za-z0-9._/\-]+|[A-Za-z0-9._-]+/[A-Za-z0-9._/\-]+)")
 COLOR_RULES = {
@@ -200,7 +201,8 @@ def print_answer_path(console: Console, used: str, reason: str) -> None:
     )
 
 
-def print_full_help(console: Console) -> None:
+def print_full_help(console: Console, *, plugins: dict[str, bool] | None = None) -> None:
+    plugins = plugins or {}
     print_section(
         console,
         title="Help",
@@ -220,14 +222,16 @@ def print_full_help(console: Console) -> None:
     table.add_row("cg ask", "QUESTION", "--full, --ctx", "Read-only Q&A over runtime snapshot + light memory.")
     table.add_row("cg do", "REQUEST", "--full, --ctx", "Auto-route to ask or run for beginner-friendly use.")
     table.add_row("cg setup", "(none)", "--apply-base/--no-apply-base, --doctor/--no-doctor", "Run onboarding wizard.")
-    table.add_row(
-        "cg fetch",
-        "DRIVE_FOLDER_LINK",
-        "--folder, -d, --open/--no-open",
-        "Download Google Drive folder into workspace/downloads and reveal folder for console/SSH.",
-    )
-    table.add_row("cg tasks list", "(none)", "(none)", "List ready-made templates.")
-    table.add_row("cg tasks run", "NAME", "(none)", "Run a built-in task template.")
+    if plugin_enabled(plugins, "fetch_drive"):
+        table.add_row(
+            "cg fetch",
+            "DRIVE_FOLDER_LINK",
+            "--folder, -d, --open/--no-open",
+            "Download Google Drive folder into workspace/downloads and reveal folder for console/SSH.",
+        )
+    if plugin_enabled(plugins, "tasks"):
+        table.add_row("cg tasks list", "(none)", "(none)", "List ready-made templates.")
+        table.add_row("cg tasks run", "NAME", "(none)", "Run a built-in task template.")
     table.add_row("cg guide", "(none)", "--mode starter|power", "Show guided command flows by user type.")
     table.add_row("cg status", "(none)", "--limit", "Show success metrics and next-step recommendations.")
     table.add_row("cg doctor", "(none)", "--verbose (optional)", "Environment and policy diagnostics.")
@@ -238,15 +242,19 @@ def print_full_help(console: Console) -> None:
     table.add_row("cg policy list", "(none)", "(none)", "List policy tiers and key runtime limits.")
     table.add_row("cg policy show", "(none)", "(none)", "Show active policy and inferred tier.")
     table.add_row("cg policy use", "TIER", "--yes", "Apply max/base/cheap profile with backup.")
-    table.add_row("cg dev snaps", "(none)", "(none)", "Run CLI snapshot tests and save report.")
-    table.add_row("cg dev eval", "(none)", "--suite core", "Run native task success benchmarks.")
-    table.add_row("cg dev metrics", "(none)", "--format json|csv --limit", "Build BI-ready telemetry summaries.")
-    table.add_row(
-        "cg dev dashboard",
-        "(none)",
-        "--live --refresh-seconds --port --event-limit",
-        "Open live dashboard for telemetry/memory/workspace/policy.",
-    )
+    if plugin_enabled(plugins, "snapshots"):
+        table.add_row("cg dev snaps", "(none)", "(none)", "Run CLI snapshot tests and save report.")
+    if plugin_enabled(plugins, "eval"):
+        table.add_row("cg dev eval", "(none)", "--suite core", "Run native task success benchmarks.")
+    if plugin_enabled(plugins, "metrics"):
+        table.add_row("cg dev metrics", "(none)", "--format json|csv --limit", "Build BI-ready telemetry summaries.")
+    if plugin_enabled(plugins, "dashboard"):
+        table.add_row(
+            "cg dev dashboard",
+            "(none)",
+            "--live --refresh-seconds --port --event-limit",
+            "Open live dashboard for telemetry/memory/workspace/policy.",
+        )
     table.add_row("cg --help", "(none)", "(none)", "Show this expanded help view.")
     console.print(table)
     print_section(
@@ -291,41 +299,45 @@ def print_full_help(console: Console) -> None:
         title="Prompt Style",
         body="Use direct verbs for deterministic actions: show, list, count, run.",
     )
-    print_section(
-        console,
-        title="Quick Examples",
-        body=(
-            "cg run \"List files in workspace\"\n"
-            "cg do \"show files\"\n"
-            "cg run \"Run tests\" --full\n"
-            "cg ask \"What does this app do?\" --ctx\n"
-            "cg setup\n"
-            "cg fetch \"https://drive.google.com/drive/folders/<id>\" --folder incoming-assets\n"
-            "cg tasks list\n"
-            "cg tasks run starter-check\n"
-            "cg guide --mode starter\n"
-            "cg status --limit 200\n"
-            "cg doctor\n"
-            "cg doctor --verbose\n"
-            "cg inspect structure -d 4\n"
-            "cg inspect workspace -d 4\n"
-            "cg inspect outputs -d 3\n"
-            "cg policy list\n"
-            "cg policy show\n"
-            "cg policy use cheap --yes\n"
-            "cg dev snaps\n"
-            "cg dev eval --suite core\n"
-            "cg dev metrics --format json --limit 1000\n"
-            "cg dev dashboard --live --refresh-seconds 5 --event-limit 5000"
-        ),
-    )
-    print_section(
-        console,
-        title="Dashboard Control",
-        body=(
-            "Start:\n"
-            "- cg dev dashboard --live --refresh-seconds 5 --port 8501\n"
-            "Stop (background process):\n"
-            "- pkill -f \"streamlit run .*dashboard_app.py\""
-        ),
-    )
+    examples = [
+        "cg run \"List files in workspace\"",
+        "cg do \"show files\"",
+        "cg run \"Run tests\" --full",
+        "cg ask \"What does this app do?\" --ctx",
+        "cg setup",
+        "cg guide --mode starter",
+        "cg status --limit 200",
+        "cg doctor",
+        "cg doctor --verbose",
+        "cg inspect structure -d 4",
+        "cg inspect workspace -d 4",
+        "cg inspect outputs -d 3",
+        "cg policy list",
+        "cg policy show",
+        "cg policy use cheap --yes",
+    ]
+    if plugin_enabled(plugins, "fetch_drive"):
+        examples.append("cg fetch \"https://drive.google.com/drive/folders/<id>\" --folder incoming-assets")
+    if plugin_enabled(plugins, "tasks"):
+        examples.extend(["cg tasks list", "cg tasks run starter-check"])
+    if plugin_enabled(plugins, "snapshots"):
+        examples.append("cg dev snaps")
+    if plugin_enabled(plugins, "eval"):
+        examples.append("cg dev eval --suite core")
+    if plugin_enabled(plugins, "metrics"):
+        examples.append("cg dev metrics --format json --limit 1000")
+    if plugin_enabled(plugins, "dashboard"):
+        examples.append("cg dev dashboard --live --refresh-seconds 5 --event-limit 5000")
+    print_section(console, title="Quick Examples", body="\n".join(examples))
+
+    if plugin_enabled(plugins, "dashboard"):
+        print_section(
+            console,
+            title="Dashboard Control",
+            body=(
+                "Start:\n"
+                "- cg dev dashboard --live --refresh-seconds 5 --port 8501\n"
+                "Stop (background process):\n"
+                "- pkill -f \"streamlit run .*dashboard_app.py\""
+            ),
+        )
