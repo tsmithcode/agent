@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from cg.executor import Executor, PolicyViolation
-from cg.policy import Policy
+from cg.safety.executor import Executor, PolicyViolation
+from cg.safety.policy import Policy
 
 
 def _policy_dict(workspace: Path) -> dict:

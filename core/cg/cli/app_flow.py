@@ -5,9 +5,9 @@ from typing import Callable
 
 import typer
 
-from .capability_manifest import validate_manifest
-from .paths import Paths
-from .policy import Policy
+from ..safety.capability_manifest import validate_manifest
+from ..data.paths import Paths
+from ..safety.policy import Policy
 
 
 _manifest_validated = False

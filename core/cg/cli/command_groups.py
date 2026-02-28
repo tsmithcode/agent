@@ -11,12 +11,12 @@ from typing import Any, Callable, Optional
 
 import typer
 
-from .inspect_ops import loc_once, open_for_review, open_target, outputs_once, show_folder_once, structure_once, workspace_once
-from .paths import Paths
-from .plugins import plugin_enabled, resolve_plugins
-from .policy import Policy
-from .telemetry import append_event, read_events, summarize_events, write_summary_csv, write_summary_json
-from .tool_registry import list_tools
+from ..inspect.inspect_ops import loc_once, open_for_review, open_target, outputs_once, show_folder_once, structure_once, workspace_once
+from ..data.paths import Paths
+from ..safety.plugins import plugin_enabled, resolve_plugins
+from ..safety.policy import Policy
+from ..observability.telemetry import append_event, read_events, summarize_events, write_summary_csv, write_summary_json
+from ..routing.tool_registry import list_tools
 from cg_utils import cap_chars
 
 
@@ -311,7 +311,7 @@ def register_groups(
         def dev_eval(
             suite: str = typer.Option("core", "--suite", help="Eval suite name."),
         ):
-            from .addons.eval_harness import run_core_eval, save_eval_report
+            from ..addons.eval_harness import run_core_eval, save_eval_report
 
             s = (suite or "core").strip().lower()
             if s != "core":

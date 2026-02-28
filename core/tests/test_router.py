@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from cg.policy import Policy
-from cg.router import decide_route
+from cg.safety.policy import Policy
+from cg.routing.router import decide_route
 
 
 def _policy_dict(workspace: Path) -> dict:

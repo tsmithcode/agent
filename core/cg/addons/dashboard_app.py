@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 
 try:
-    from cg.env import get_openai_api_key, load_project_dotenv
+    from cg.data.env import get_openai_api_key, load_project_dotenv
     from cg.addons.dashboard_data import (
         load_event_overview,
         load_memory_overview,
@@ -21,8 +21,11 @@ try:
 except ModuleNotFoundError as e:
     if e.name != "cg":
         raise
-    from env import get_openai_api_key, load_project_dotenv  # type: ignore
-    from dashboard_data import (  # type: ignore
+    root = Path(__file__).resolve().parents[1]
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    from data.env import get_openai_api_key, load_project_dotenv  # type: ignore
+    from addons.dashboard_data import (  # type: ignore
         load_event_overview,
         load_memory_overview,
         load_policy_overview,

@@ -12,8 +12,8 @@ from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
-from .cli_ui import COLOR_RULES
-from .paths import Paths
+from ..cli.ui.cli_ui import COLOR_RULES
+from ..data.paths import Paths
 
 MAX_TREE_ROWS = 300
 EXCLUDE_DIRS = {

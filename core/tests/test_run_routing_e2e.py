@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from cg import main as main_mod
-from cg.router import RouteDecision
+from cg.routing.router import RouteDecision
 
 
 class _FakeMemory:

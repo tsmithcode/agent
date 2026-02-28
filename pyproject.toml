@@ -46,7 +46,7 @@ Documentation = "https://github.com/your-org/cad-guardian/tree/main/docs"
 Issues = "https://github.com/your-org/cad-guardian/issues"
 
 [project.scripts]
-cg = "cg.main:cli"
+cg = "cg.cli.main:cli"
 
 [tool.setuptools]
 package-dir = {"" = "core"}

@@ -222,17 +222,17 @@ For apply-style batch requests in `cg run`, use explicit confirmation:
 
 ## Developer Notes
 
-- CLI entrypoint: `cg.main:cli`
-- Main runtime: `core/cg/main.py`
-- Run execution engine: `core/cg/runtime_run.py`
-- Ask/read-only engine: `core/cg/runtime_ask.py`
-- Shared runtime helpers: `core/cg/runtime_common.py`
-- Management command groups (policy/tasks/dev/inspect): `core/cg/command_groups.py`
-- Deterministic tool registry: `core/cg/tool_registry.py`
-- Runtime capability guard: `core/cg/capability_manifest.py` + `config/capabilities.manifest.json`
-- CLI view layer: `core/cg/cli_ui.py` (screen rendering/help/notices)
+- CLI entrypoint: `cg.cli.main:cli`
+- Main runtime: `core/cg/cli/main.py`
+- Run execution engine: `core/cg/runtime/run_engine.py`
+- Ask/read-only engine: `core/cg/runtime/ask_engine.py`
+- Shared runtime helpers: `core/cg/runtime/common.py`
+- Management command groups (policy/tasks/dev/inspect): `core/cg/cli/command_groups.py`
+- Deterministic tool registry: `core/cg/routing/tool_registry.py`
+- Runtime capability guard: `core/cg/safety/capability_manifest.py` + `config/capabilities.manifest.json`
+- CLI view layer: `core/cg/cli/ui/cli_ui.py` (screen rendering/help/notices)
 - Inspection operations: `core/cg/inspect_ops.py` (tree/output/workspace structure utilities)
-- Diagnostics service: `core/cg/doctor.py` (`cg doctor` checks and reporting)
+- Diagnostics service: `core/cg/observability/doctor.py` (`cg doctor` checks and reporting)
 - Shared utilities: `core/cg_utils/*` (cross-command reusable text/format helpers)
 - Policy schema: `config/policy.json`
 - Capability manifest: `config/capabilities.manifest.json`

@@ -3,4 +3,4 @@ set -euo pipefail
 cd "$(dirname "$0")"
 source venv/bin/activate
 
-python -m cg.main "$@"
+python -m cg.cli.main "$@"

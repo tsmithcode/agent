@@ -176,7 +176,7 @@ cd /home/cg-ai/agent/core
 | `cg dev dashboard` | Launches live dashboard (telemetry, memory, workspace, policy, reports) (needs dashboard plugin) | `cg dev dashboard --live --event-limit 5000` |
 | `cg --help` | Shows help screen | `cg --help` |
 
-> Note: in this setup you run through `./cg.sh`, which calls `python -m cg.main`.
+> Note: in this setup you run through `./cg.sh`, which calls `python -m cg.cli.main`.
 > `cg fetch` prompts for folder name if `--folder` is not provided.
 
 ## Plugins
@@ -348,22 +348,22 @@ Your policy file is at:
 | File | Role |
 |---|---|
 | `agent/core/cg.sh` | Shell launcher |
-| `agent/core/cg/main.py` | CLI entrypoint, core command wiring, composition root |
-| `agent/core/cg/runtime_run.py` | Run-mode execution engine (planning + policy-guarded actions) |
-| `agent/core/cg/runtime_ask.py` | Ask-mode runtime snapshot + read-only answering |
-| `agent/core/cg/runtime_common.py` | Shared runtime limits/event/memory helpers |
-| `agent/core/cg/command_groups.py` | Policy/tasks/dev/inspect command group registration |
-| `agent/core/cg/tool_registry.py` | Deterministic tool/plugin registry (scores + executes handlers) |
-| `agent/core/cg/capability_manifest.py` | Runtime capability/permission manifest validation |
+| `agent/core/cg/cli/main.py` | CLI entrypoint, core command wiring, composition root |
+| `agent/core/cg/runtime/run_engine.py` | Run-mode execution engine (planning + policy-guarded actions) |
+| `agent/core/cg/runtime/ask_engine.py` | Ask-mode runtime snapshot + read-only answering |
+| `agent/core/cg/runtime/common.py` | Shared runtime limits/event/memory helpers |
+| `agent/core/cg/cli/command_groups.py` | Policy/tasks/dev/inspect command group registration |
+| `agent/core/cg/routing/tool_registry.py` | Deterministic tool/plugin registry (scores + executes handlers) |
+| `agent/core/cg/safety/capability_manifest.py` | Runtime capability/permission manifest validation |
 | `agent/core/cg/addons/eval_harness.py` | Native benchmark harness for core task success rates |
-| `agent/core/cg/cli_ui.py` | CLI presentation layer (help, notices, route/answer panels) |
-| `agent/core/cg/llm.py` | LLM request/response contract |
-| `agent/core/cg/executor.py` | Policy enforcement for commands/writes |
-| `agent/core/cg/policy.py` | Policy parsing + typed accessors |
-| `agent/core/cg/memory.py` | Long-term memory store and retrieval |
-| `agent/core/cg/paths.py` | Path resolution and environment roots |
-| `agent/core/cg/inspect_ops.py` | Structure/workspace/output inspection utilities |
-| `agent/core/cg/doctor.py` | Diagnostic checks service used by `cg doctor` |
+| `agent/core/cg/cli/ui/cli_ui.py` | CLI presentation layer (help, notices, route/answer panels) |
+| `agent/core/cg/runtime/llm.py` | LLM request/response contract |
+| `agent/core/cg/safety/executor.py` | Policy enforcement for commands/writes |
+| `agent/core/cg/safety/policy.py` | Policy parsing + typed accessors |
+| `agent/core/cg/data/memory.py` | Long-term memory store and retrieval |
+| `agent/core/cg/data/paths.py` | Path resolution and environment roots |
+| `agent/core/cg/inspect/inspect_ops.py` | Structure/workspace/output inspection utilities |
+| `agent/core/cg/observability/doctor.py` | Diagnostic checks service used by `cg doctor` |
 | `agent/core/cg_utils/text.py` | Shared utility helpers (truncate/cap logic) |
 
 ### Data and config paths
@@ -433,11 +433,11 @@ If you want useful but controlled behavior:
 
 | Goal | File to edit |
 |---|---|
-| New CLI flags/commands | `agent/core/cg/main.py` |
-| Change model behavior | `agent/core/cg/llm.py` |
-| Add policy rule enforcement | `agent/core/cg/executor.py` and `agent/core/cg/policy.py` |
-| Memory strategy tuning | `agent/core/cg/memory.py` |
-| Environment/path behavior | `agent/core/cg/paths.py` |
+| New CLI flags/commands | `agent/core/cg/cli/main.py` |
+| Change model behavior | `agent/core/cg/runtime/llm.py` |
+| Add policy rule enforcement | `agent/core/cg/safety/executor.py` and `agent/core/cg/safety/policy.py` |
+| Memory strategy tuning | `agent/core/cg/data/memory.py` |
+| Environment/path behavior | `agent/core/cg/data/paths.py` |
 
 ## One-Page Memory Trick (For Kids)
 

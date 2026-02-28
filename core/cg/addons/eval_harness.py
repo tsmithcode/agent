@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from .paths import Paths
+from ..data.paths import Paths
 
 
 @dataclass(frozen=True)

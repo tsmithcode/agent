@@ -3,13 +3,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from cg.dashboard_data import (
+from cg.addons.dashboard_data import (
     load_event_overview,
     load_policy_overview,
     load_reports_overview,
     load_workspace_overview,
 )
-from cg.telemetry import append_event
+from cg.observability.telemetry import append_event
 
 
 class DashboardDataTests(unittest.TestCase):

@@ -12,7 +12,7 @@ import click
 import typer
 from rich.console import Console
 
-from .cli_ui import (
+from .ui.cli_ui import (
     print_answer_path,
     print_cli_notice,
     print_full_help,
@@ -31,19 +31,19 @@ from .command_groups import (
     register_groups,
 )
 from .app_flow import enforce_runtime_manifest, interactive_start_menu, select_do_mode, status_recommendations
-from .plugins import any_enabled, plugin_enabled, resolve_plugins
-from .doctor import doctor_once
-from .env import get_openai_api_key, load_project_dotenv
-from .inspect_ops import extract_depth, open_target, show_folder_once, structure_once, workspace_once, outputs_once
-from .llm import LLM
-from .memory import LongTermMemory
-from .paths import Paths
-from .policy import Policy
-from .router import decide_route
-from .runtime_ask import ask_once, ask_workspace_file_count
-from .runtime_common import finish_event
-from .runtime_run import run_once, _run_with_spinner
-from .telemetry import read_events, summarize_events
+from ..safety.plugins import any_enabled, plugin_enabled, resolve_plugins
+from ..observability.doctor import doctor_once
+from ..data.env import get_openai_api_key, load_project_dotenv
+from ..inspect.inspect_ops import extract_depth, open_target, show_folder_once, structure_once, workspace_once, outputs_once
+from ..runtime.llm import LLM
+from ..data.memory import LongTermMemory
+from ..data.paths import Paths
+from ..safety.policy import Policy
+from ..routing.router import decide_route
+from ..runtime.ask_engine import ask_once, ask_workspace_file_count
+from ..runtime.common import finish_event
+from ..runtime.run_engine import run_once, _run_with_spinner
+from ..observability.telemetry import read_events, summarize_events
 
 app = typer.Typer(add_completion=False)
 inspect_app = typer.Typer(help="Inspect project structure, workspace files, and output folders.")
@@ -352,7 +352,7 @@ def fetch(
         target.mkdir(parents=True, exist_ok=True)
 
         print_cli_notice(console, title="Download Started", level="info", message=f"Fetching files into: {target}", help_line="This may take time for large folders.")
-        from .addons.gdrive_fetch import download_public_folder
+        from ..addons.gdrive_fetch import download_public_folder
 
         result = _run_with_spinner(console, "Downloading files from Google Drive...", lambda: download_public_folder(link, target))
 

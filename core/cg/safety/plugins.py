@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable
 
-from .paths import Paths
+from ..data.paths import Paths
 
 DEFAULT_PLUGINS: Dict[str, bool] = {
     "dashboard": True,
@@ -59,7 +59,7 @@ def plugin_contracts() -> Dict[str, PluginContract]:
             name="tasks",
             description="Beginner workflow templates.",
             commands=["tasks list", "tasks run"],
-            required_files=["core/cg/command_groups.py"],
+            required_files=["core/cg/cli/command_groups.py"],
         ),
         "fetch_drive": PluginContract(
             name="fetch_drive",

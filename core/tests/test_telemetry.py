@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from cg.telemetry import append_event, read_events, summarize_events
+from cg.observability.telemetry import append_event, read_events, summarize_events
 
 
 class TelemetryTests(unittest.TestCase):
