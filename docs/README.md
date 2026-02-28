@@ -21,6 +21,8 @@ Core product intent:
 
 - Ask over a live runtime snapshot of codebase/workspace
 - Run policy-controlled actions from one CLI
+- Keep costs bounded with explicit execution limits
+- Toggle advanced plugins (dashboard, evals, snapshots, metrics, tasks, Drive fetch) via `config/plugins.json`
 
 ## Before You Start
 
@@ -148,14 +150,27 @@ cd /home/cg-ai/agent/core
 | `cg policy list` | Lists available policy tiers and key limits | `cg policy list` |
 | `cg policy show` | Shows active policy with inferred tier | `cg policy show` |
 | `cg policy use <tier> --yes` | Applies `cheap`, `base`, or `max` policy profile | `cg policy use cheap --yes` |
-| `cg dev snaps` | Runs UI snapshot tests, saves report in workspace, opens/fallback previews report | `cg dev snaps` |
-| `cg dev eval --suite core` | Runs native core-task success benchmarks and writes eval report | `cg dev eval --suite core` |
-| `cg dev metrics` | Aggregates JSONL telemetry to BI-ready summary report (`json` or `csv`) | `cg dev metrics --format csv --limit 2000` |
-| `cg dev dashboard` | Launches live dashboard (telemetry, memory, workspace, policy, reports) | `cg dev dashboard --live --event-limit 5000` |
+| `cg dev snaps` | Runs UI snapshot tests, saves report in workspace, opens/fallback previews report (needs snapshots plugin) | `cg dev snaps` |
+| `cg dev eval --suite core` | Runs native core-task success benchmarks and writes eval report (needs eval plugin) | `cg dev eval --suite core` |
+| `cg dev metrics` | Aggregates JSONL telemetry to BI-ready summary report (`json` or `csv`) (needs metrics plugin) | `cg dev metrics --format csv --limit 2000` |
+| `cg dev dashboard` | Launches live dashboard (telemetry, memory, workspace, policy, reports) (needs dashboard plugin) | `cg dev dashboard --live --event-limit 5000` |
 | `cg --help` | Shows help screen | `cg --help` |
 
 > Note: in this setup you run through `./cg.sh`, which calls `python -m cg.main`.
 > `cg fetch` prompts for folder name if `--folder` is not provided.
+
+## Plugins
+
+- Config file: `config/plugins.json`
+- Defaults: all plugins `true` for full experience.
+- Disable a plugin (`false`) to ship a minimal core without removing code.
+- Plugin map:
+  - `dashboard`: `cg dev dashboard`
+  - `eval`: `cg dev eval`
+  - `snapshots`: `cg dev snaps`
+  - `metrics`: `cg dev metrics`
+  - `tasks`: `cg tasks list|run`
+  - `fetch_drive`: `cg fetch`
 
 ## Policy Profiles (Cost Optimization)
 

@@ -14,6 +14,7 @@ import typer
 from .eval_harness import run_core_eval, save_eval_report
 from .inspect_ops import open_for_review, open_target, outputs_once, show_folder_once, structure_once, workspace_once
 from .paths import Paths
+from .plugins import load_plugins, plugin_enabled
 from .policy import Policy
 from .telemetry import append_event, read_events, summarize_events, write_summary_csv, write_summary_json
 from .tool_registry import list_tools
@@ -152,8 +153,22 @@ def register_groups(
     decide_route_cb: Callable[[str, Policy], object],
     file_count_probe: Callable[[str, Path], tuple[bool, str]],
 ) -> Callable[..., None]:
+    plugins = load_plugins(Paths.resolve())
+
+    def require_plugin(plugin_name: str, title: str):
+        if plugin_enabled(plugins, plugin_name):
+            return
+        print_cli_notice(
+            console,
+            title=title,
+            level="warning",
+            message=f"Plugin '{plugin_name}' is disabled in config/plugins.json.",
+            help_line="Set the value to true and rerun if you want this feature.",
+        )
+        raise SystemExit(2)
     @tasks_app.command("list")
     def tasks_list():
+        require_plugin("tasks", "Tasks Disabled")
         print_section(console, title="Task Templates", body=(
             "starter-check: Run setup flow and health checks\n"
             "workspace-overview: Show files and summarize workspace via ask\n"
@@ -164,6 +179,7 @@ def register_groups(
 
     @tasks_app.command("run")
     def tasks_run(name: str = typer.Argument(..., help="Template name from `cg tasks list`.")):
+        require_plugin("tasks", "Tasks Disabled")
         n = (name or "").strip().lower()
         if n == "starter-check":
             do_setup(True, True)
@@ -245,6 +261,7 @@ def register_groups(
 
     @dev_app.command("snaps")
     def dev_snaps():
+        require_plugin("snapshots", "Snapshots Disabled")
         run_id = start_end_session("dev.snaps")
         try:
             run_snapshot_tests(console=console, print_cli_notice=print_cli_notice, print_section=print_section, log_event=log_event_wrapper)
@@ -253,6 +270,7 @@ def register_groups(
 
     @dev_app.command("metrics")
     def dev_metrics(fmt: str = typer.Option("json", "--format", help="Summary report format: json or csv."), limit: int = typer.Option(0, "--limit", min=0, help="Optional tail limit of events (0 = all).")):
+        require_plugin("metrics", "Metrics Disabled")
         f = (fmt or "json").strip().lower()
         if f not in {"json", "csv"}:
             print_cli_notice(console, title="Invalid Format", level="error", message=f"Unsupported format: {fmt}", help_line="Use --format json or --format csv.")
@@ -268,6 +286,7 @@ def register_groups(
 
     @dev_app.command("dashboard")
     def dev_dashboard(live: bool = typer.Option(True, "--live", help="Enable auto-refresh while dashboard is open."), refresh_seconds: int = typer.Option(5, "--refresh-seconds", min=1, max=60, help="Auto-refresh interval."), port: int = typer.Option(8501, "--port", min=1024, max=65535, help="Dashboard port."), event_limit: int = typer.Option(5000, "--event-limit", min=100, max=50000, help="Max telemetry events loaded.")):
+        require_plugin("dashboard", "Dashboard Disabled")
         run_id = start_end_session("dev.dashboard")
         try:
             paths = Paths.resolve()
@@ -290,6 +309,7 @@ def register_groups(
     def dev_eval(
         suite: str = typer.Option("core", "--suite", help="Eval suite name."),
     ):
+        require_plugin("eval", "Eval Disabled")
         s = (suite or "core").strip().lower()
         if s != "core":
             print_cli_notice(console, title="Invalid Eval Suite", level="error", message=f"Unsupported suite: {suite}", help_line="Use --suite core")

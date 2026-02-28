@@ -17,6 +17,7 @@ from .memory import LongTermMemory
 from .paths import Paths
 from .policy import Policy
 from .tool_registry import list_tools
+from .plugins import load_plugins, plugin_enabled
 
 
 def doctor_once(console: Console, *, verbose: bool = False, app=None) -> dict[str, int]:
@@ -73,6 +74,11 @@ def doctor_once(console: Console, *, verbose: bool = False, app=None) -> dict[st
 
     git_path = shutil.which("git")
     rows.append(("git binary", "PASS" if git_path else "WARN", git_path or "Not found"))
+
+    plugins = load_plugins(paths) if paths is not None else {}
+    rows.append(("Plugins file", "PASS" if plugins else "WARN", "config/plugins.json"))
+    for name, enabled in plugins.items():
+        rows.append((f"Plugin: {name}", "PASS" if enabled else "WARN", "enabled" if enabled else "disabled"))
 
     try:
         host = socket.gethostbyname("api.openai.com")

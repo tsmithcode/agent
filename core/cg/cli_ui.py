@@ -13,15 +13,16 @@ from .router import RouteDecision
 
 _PATH_RE = re.compile(r"(?P<path>(?:~|\.{1,2}|/)[A-Za-z0-9._/\-]+|[A-Za-z0-9._-]+/[A-Za-z0-9._/\-]+)")
 COLOR_RULES = {
-    "section_header": "bold #a78bfa",
+    "section_header": "bold #a78bfa",  # brand purple
     "error": "bold #f87171",
     "warning": "bold #fbbf24",
     "success": "bold #34d399",
     "info": "#c4b5fd",
     "subtle": "#9ca3af",
     "text": "#f3f4f6",
-    "path_dir": "bold #a78bfa",
-    "path_file": "#c2c6d0",
+    "path_root": "bold #34d399",  # root paths green
+    "path_dir": "bold #a78bfa",   # directories purple
+    "path_file": "#c2c6d0",       # files muted light
 }
 SIMPLE_MODE = False
 
@@ -61,7 +62,12 @@ def _linkify_line(line: str, *, base_dir: Path) -> Text:
             is_dir_real = path_obj.exists() and path_obj.is_dir()
         except Exception:
             is_dir_real = False
-        tone = COLOR_RULES["path_dir"] if (is_dir_hint or is_dir_real) else COLOR_RULES["path_file"]
+        if path_obj == base_dir:
+            tone = COLOR_RULES["path_root"]
+        elif is_dir_hint or is_dir_real:
+            tone = COLOR_RULES["path_dir"]
+        else:
+            tone = COLOR_RULES["path_file"]
         return f"{tone} link file://{path_obj}"
 
     out = Text()

@@ -8,6 +8,7 @@ from typing import Any
 from .paths import Paths
 from .policy import Policy
 from .tool_registry import list_tools
+from .plugins import load_plugins, plugin_enabled
 
 
 @dataclass(frozen=True)
@@ -44,9 +45,28 @@ def _command_names(app) -> set[str]:
     return {n for n in names if n}
 
 
+PLUGIN_COMMAND_MAP = {
+    "dashboard": {"dev dashboard"},
+    "eval": {"dev eval"},
+    "snapshots": {"dev snaps"},
+    "metrics": {"dev metrics"},
+    "tasks": {"tasks list", "tasks run"},
+    "fetch_drive": {"fetch"},
+}
+
+
+def _is_plugin_command_disabled(cmd: str, plugins: dict[str, bool]) -> bool:
+    for plugin, cmds in PLUGIN_COMMAND_MAP.items():
+        if cmd in cmds and not plugin_enabled(plugins, plugin):
+            return True
+    return False
+
+
 def validate_manifest(*, paths: Paths, policy: Policy, app) -> ManifestValidation:
     errors: list[str] = []
     warnings: list[str] = []
+
+    plugins = load_plugins(paths)
 
     try:
         manifest = load_manifest(paths)
@@ -55,7 +75,7 @@ def validate_manifest(*, paths: Paths, policy: Policy, app) -> ManifestValidatio
 
     required_commands = set(str(x).strip() for x in (manifest.get("required_commands") or []) if str(x).strip())
     actual_commands = _command_names(app)
-    missing_cmds = sorted(required_commands - actual_commands)
+    missing_cmds = [c for c in sorted(required_commands - actual_commands) if not _is_plugin_command_disabled(c, plugins)]
     if missing_cmds:
         errors.append(f"Missing required CLI commands from manifest: {', '.join(missing_cmds)}")
 

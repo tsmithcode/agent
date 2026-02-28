@@ -31,6 +31,7 @@ from .command_groups import (
     register_groups,
 )
 from .app_flow import enforce_runtime_manifest, interactive_start_menu, select_do_mode, status_recommendations
+from .plugins import load_plugins, plugin_enabled
 from .doctor import doctor_once
 from .env import get_openai_api_key, load_project_dotenv
 from .gdrive_fetch import download_public_folder
@@ -327,6 +328,10 @@ def fetch(
     open_gui: bool = typer.Option(True, "--open/--no-open", help="Try opening folder in GUI when not in SSH."),
     simple: bool = typer.Option(False, "--simple", help="Use beginner-friendly wording."),
 ):
+    plugins = load_plugins(Paths.resolve())
+    if not plugin_enabled(plugins, "fetch_drive"):
+        print_cli_notice(console, title="Fetch Disabled", level="warning", message="Drive fetch plugin is disabled in config/plugins.json.", help_line="Set fetch_drive to true to enable.")
+        raise SystemExit(2)
     set_simple_mode(simple)
     run_id = _start_end_session("fetch")
     try:

@@ -10,6 +10,7 @@ It helps you:
 - Ask over a live runtime snapshot of codebase/workspace (`cg ask`)
 - Run safe, policy-governed actions (`cg run`) with deterministic auto-routing for obvious tasks
 - Keep token/runtime costs bounded with explicit execution limits
+- Optional plugins toggle advanced features (dashboard, evals, snapshots, metrics, tasks, Drive fetch) via `config/plugins.json`
 
 ## Install
 
@@ -43,10 +44,10 @@ cg policy list
 cg policy show
 cg policy use base --yes
 cg inspect structure
-cg dev snaps
-cg dev eval --suite core
-cg dev metrics --format json --limit 1000
-cg dev dashboard --live --refresh-seconds 5 --event-limit 5000
+cg dev snaps  # snapshots plugin
+cg dev eval --suite core  # eval plugin
+cg dev metrics --format json --limit 1000  # metrics plugin
+cg dev dashboard --live --refresh-seconds 5 --event-limit 5000  # dashboard plugin
 ```
 
 Routing behavior:
@@ -71,9 +72,9 @@ cg status --limit 200
 cg policy list
 cg policy use cheap --yes
 cg inspect workspace
-cg dev snaps
-cg dev metrics --format csv --limit 2000
-cg dev dashboard --live --event-limit 10000
+cg dev snaps  # snapshots plugin
+cg dev metrics --format csv --limit 2000  # metrics plugin
+cg dev dashboard --live --event-limit 10000  # dashboard plugin
 ```
 
 ## Policy Tiers (Cost Profiles)
@@ -116,6 +117,19 @@ Use these commands for low-fatigue onboarding:
 - `cg tasks list` and `cg tasks run <name>` for ready-made workflows
 
 ## Dashboard UX
+
+### Plugins
+
+- Config file: `config/plugins.json`
+- Defaults: all plugins `true` for full experience.
+- Set a plugin `false` to ship a minimal core (no code removal needed).
+- Plugin to surface mapping:
+  - `dashboard`: enables `cg dev dashboard`
+  - `eval`: enables `cg dev eval`
+  - `snapshots`: enables `cg dev snaps`
+  - `metrics`: enables `cg dev metrics`
+  - `tasks`: enables `cg tasks list|run`
+  - `fetch_drive`: enables `cg fetch`
 
 `cg dev dashboard` is optimized for readable enterprise reporting:
 
