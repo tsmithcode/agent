@@ -29,22 +29,22 @@ cd /path/to/cad-guardian/agent
 pipx install .
 ```
 
-Then run:
+Then run (short notes):
 
 ```bash
-cg --help
-cg setup
-cg guide --mode starter
-cg do "show files"
-cg tasks list
-cg guide --mode starter
-cg status --limit 200
-cg doctor
-cg doctor --verbose
-cg policy list
-cg policy show
-cg policy use base --yes
-cg inspect structure
+cg --help  # full command list and flags
+cg setup  # env checks + baseline policy
+cg guide --mode starter  # beginner flow
+cg do "show files"  # auto-route to safe handler
+cg tasks list  # built-in templates (tasks plugin)
+cg guide --mode starter  # repeatable quick flow
+cg status --limit 200  # usage summary + tips
+cg doctor  # diagnostics
+cg doctor --verbose  # full path inventory
+cg policy list  # available tiers
+cg policy show  # active policy + expectation
+cg policy use base --yes  # apply baseline tier
+cg inspect structure  # solution tree
 cg dev snaps  # snapshots plugin
 cg dev eval --suite core  # eval plugin
 cg dev metrics --format json --limit 1000  # metrics plugin
