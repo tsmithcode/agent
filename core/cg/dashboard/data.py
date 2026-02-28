@@ -1,1 +1,1 @@
-from ..dashboard_data import *  # noqa: F401,F403
+from ..addons.dashboard_data import *  # noqa: F401,F403

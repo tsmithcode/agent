@@ -1,1 +1,1 @@
-from ..gdrive_fetch import *  # noqa: F401,F403
+from ..addons.gdrive_fetch import *  # noqa: F401,F403

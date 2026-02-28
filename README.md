@@ -22,11 +22,23 @@ cd /path/to/cad-guardian/agent
 python -m pip install -e .
 ```
 
+Full add-on dependencies:
+
+```bash
+python -m pip install -e .[full]
+```
+
 ### Option 2: pipx (recommended for CLI)
 
 ```bash
 cd /path/to/cad-guardian/agent
 pipx install .
+```
+
+Full add-on dependencies:
+
+```bash
+pipx install '.[full]'
 ```
 
 Then run (short notes):
@@ -124,7 +136,8 @@ Use these commands for low-fatigue onboarding:
 
 - Config file: `config/plugins.json`
 - Defaults: all plugins `true` for full experience.
-- Set a plugin `false` to ship a minimal core (no code removal needed).
+- Effective plugin availability is contract-based (enabled in config + required files + required deps installed).
+- Build profile `CG_BUILD_PROFILE=core` excludes `cg.addons` modules from artifact output.
 - Plugin to surface mapping:
   - `dashboard`: enables `cg dev dashboard`
   - `eval`: enables `cg dev eval`
@@ -162,7 +175,7 @@ Start/stop:
 cg dev dashboard --live --refresh-seconds 5 --port 8501
 
 # stop dashboard (if running in background)
-pkill -f "streamlit run .*dashboard_app.py"
+pkill -f "streamlit run .*addons/dashboard_app.py"
 ```
 
 ## Marketplace Description (Ready Copy)
@@ -214,7 +227,7 @@ For apply-style batch requests in `cg run`, use explicit confirmation:
 - Shared utilities: `core/cg_utils/*` (cross-command reusable text/format helpers)
 - Policy schema: `config/policy.json`
 - Capability manifest: `config/capabilities.manifest.json`
-- Native eval harness: `core/cg/eval_harness.py` (`cg dev eval --suite core`)
+- Native eval harness: `core/cg/addons/eval_harness.py` (`cg dev eval --suite core`)
 - Release workflow scaffold: `.github/workflows/release.yml`
 - Homebrew formula template: `packaging/homebrew/cad-guardian.rb`
 - Marketplace base manifest: `packaging/marketplace/app-manifest.json`
@@ -230,6 +243,7 @@ Generate marketplace manifests locally after building artifacts:
 
 ```bash
 python -m build
+CG_BUILD_PROFILE=core python -m build --outdir dist-core
 python packaging/marketplace/build_release_manifest.py --release-ref "local-build"
 ```
 

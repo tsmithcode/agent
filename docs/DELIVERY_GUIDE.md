@@ -39,9 +39,20 @@ git push origin main --tags
 The workflow `.github/workflows/release.yml` will:
 
 - Run tests
-- Build wheel and sdist
+- Build full wheel/sdist
+- Build core profile wheel/sdist (`CG_BUILD_PROFILE=core`)
 - Generate marketplace manifests
 - Publish to PyPI for tagged releases
+
+### D. Local profile builds (optional)
+
+```bash
+# full artifact (includes add-on modules)
+python -m build
+
+# core artifact (excludes cg.addons modules)
+CG_BUILD_PROFILE=core python -m build --outdir dist-core
+```
 
 ## 2) Customer Install (PyPI + pipx)
 
@@ -49,6 +60,12 @@ The workflow `.github/workflows/release.yml` will:
 pipx install cad-guardian
 cg setup
 cg guide --mode starter
+```
+
+If you want dashboard dependencies installed at install time:
+
+```bash
+pipx install 'cad-guardian[dashboard]'
 ```
 
 If `pipx` is not installed:
@@ -122,4 +139,5 @@ cg do "show files"
 ## Notes
 
 - Full feature set is enabled by default. Toggle optional plugins in `config/plugins.json`.
+- Dashboard command appears only when dashboard plugin contract is satisfied (files + deps).
 - Do not ship API keys. Customer sets `OPENAI_API_KEY` locally.

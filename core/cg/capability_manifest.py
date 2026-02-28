@@ -8,7 +8,7 @@ from typing import Any
 from .paths import Paths
 from .policy import Policy
 from .tool_registry import list_tools
-from .plugins import load_plugins, plugin_enabled
+from .plugins import plugin_enabled, resolve_plugins
 
 
 @dataclass(frozen=True)
@@ -66,7 +66,7 @@ def validate_manifest(*, paths: Paths, policy: Policy, app) -> ManifestValidatio
     errors: list[str] = []
     warnings: list[str] = []
 
-    plugins = load_plugins(paths)
+    plugins = resolve_plugins(paths)
 
     try:
         manifest = load_manifest(paths)

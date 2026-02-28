@@ -42,11 +42,23 @@ cd /home/cg-ai/agent
 pipx install .
 ```
 
+For full add-on dependencies:
+
+```bash
+pipx install '.[full]'
+```
+
 ### pip editable install
 
 ```bash
 cd /home/cg-ai/agent
 python -m pip install -e .
+```
+
+For full add-on dependencies:
+
+```bash
+python -m pip install -e .[full]
 ```
 
 After install:
@@ -93,6 +105,7 @@ Generate locally:
 ```bash
 cd /home/cg-ai/agent
 python -m build
+CG_BUILD_PROFILE=core python -m build --outdir dist-core
 python packaging/marketplace/build_release_manifest.py --release-ref "local-build"
 ```
 
@@ -165,7 +178,8 @@ cd /home/cg-ai/agent/core
 
 - Config file: `config/plugins.json`
 - Defaults: all plugins `true` for full experience.
-- Disable a plugin (`false`) to ship a minimal core without removing code.
+- Effective plugin availability is contract-based (config + required files + required dependencies).
+- Build profile `CG_BUILD_PROFILE=core` excludes `cg.addons` modules from built artifacts.
 - Plugin map:
   - `dashboard`: `cg dev dashboard`
   - `eval`: `cg dev eval`
@@ -336,7 +350,7 @@ Your policy file is at:
 | `agent/core/cg/command_groups.py` | Policy/tasks/dev/inspect command group registration |
 | `agent/core/cg/tool_registry.py` | Deterministic tool/plugin registry (scores + executes handlers) |
 | `agent/core/cg/capability_manifest.py` | Runtime capability/permission manifest validation |
-| `agent/core/cg/eval_harness.py` | Native benchmark harness for core task success rates |
+| `agent/core/cg/addons/eval_harness.py` | Native benchmark harness for core task success rates |
 | `agent/core/cg/cli_ui.py` | CLI presentation layer (help, notices, route/answer panels) |
 | `agent/core/cg/llm.py` | LLM request/response contract |
 | `agent/core/cg/executor.py` | Policy enforcement for commands/writes |

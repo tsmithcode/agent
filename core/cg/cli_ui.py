@@ -338,6 +338,6 @@ def print_full_help(console: Console, *, plugins: dict[str, bool] | None = None)
                 "Start:\n"
                 "- cg dev dashboard --live --refresh-seconds 5 --port 8501\n"
                 "Stop (background process):\n"
-                "- pkill -f \"streamlit run .*dashboard_app.py\""
+                "- pkill -f \"streamlit run .*addons/dashboard_app.py\""
             ),
         )

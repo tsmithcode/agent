@@ -11,10 +11,9 @@ from typing import Any, Callable, Optional
 
 import typer
 
-from .eval_harness import run_core_eval, save_eval_report
 from .inspect_ops import loc_once, open_for_review, open_target, outputs_once, show_folder_once, structure_once, workspace_once
 from .paths import Paths
-from .plugins import load_plugins, plugin_enabled
+from .plugins import plugin_enabled, resolve_plugins
 from .policy import Policy
 from .telemetry import append_event, read_events, summarize_events, write_summary_csv, write_summary_json
 from .tool_registry import list_tools
@@ -153,7 +152,7 @@ def register_groups(
     decide_route_cb: Callable[[str, Policy], object],
     file_count_probe: Callable[[str, Path], tuple[bool, str]],
 ) -> Callable[..., None]:
-    plugins = load_plugins(Paths.resolve())
+    plugins = resolve_plugins(Paths.resolve())
 
     def require_plugin(plugin_name: str, title: str):
         if plugin_enabled(plugins, plugin_name):
@@ -297,7 +296,7 @@ def register_groups(
                 except Exception:
                     print_cli_notice(console, title="Missing Dependency", level="error", message="Streamlit is not installed.", help_line="Install with: pip install streamlit")
                     raise SystemExit(1)
-                app_path = (paths.agent_root / "core" / "cg" / "dashboard_app.py").resolve()
+                app_path = (paths.agent_root / "core" / "cg" / "addons" / "dashboard_app.py").resolve()
                 policy_path = (paths.agent_root / "config" / "policy.json").resolve()
                 cmd = [sys.executable, "-m", "streamlit", "run", str(app_path), "--server.headless", "true", "--server.port", str(port), "--", "--workspace", str(paths.workspace), "--logs-dir", str(paths.logs_dir), "--chroma-dir", str(paths.chroma_dir), "--policy", str(policy_path), "--live", "1" if live else "0", "--refresh-seconds", str(refresh_seconds), "--event-limit", str(event_limit)]
                 subprocess.Popen(cmd, cwd=str(paths.agent_root))
@@ -312,6 +311,8 @@ def register_groups(
         def dev_eval(
             suite: str = typer.Option("core", "--suite", help="Eval suite name."),
         ):
+            from .addons.eval_harness import run_core_eval, save_eval_report
+
             s = (suite or "core").strip().lower()
             if s != "core":
                 print_cli_notice(console, title="Invalid Eval Suite", level="error", message=f"Unsupported suite: {suite}", help_line="Use --suite core")

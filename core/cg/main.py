@@ -31,10 +31,9 @@ from .command_groups import (
     register_groups,
 )
 from .app_flow import enforce_runtime_manifest, interactive_start_menu, select_do_mode, status_recommendations
-from .plugins import any_enabled, load_plugins, plugin_enabled
+from .plugins import any_enabled, plugin_enabled, resolve_plugins
 from .doctor import doctor_once
 from .env import get_openai_api_key, load_project_dotenv
-from .gdrive_fetch import download_public_folder
 from .inspect_ops import extract_depth, open_target, show_folder_once, structure_once, workspace_once, outputs_once
 from .llm import LLM
 from .memory import LongTermMemory
@@ -54,7 +53,7 @@ tasks_app = typer.Typer(help="Beginner-friendly task templates.")
 console = Console()
 SESSION_ID = str(uuid.uuid4())
 
-PLUGINS = load_plugins(Paths.resolve())
+PLUGINS = resolve_plugins(Paths.resolve())
 app.add_typer(inspect_app, name="inspect")
 app.add_typer(policy_app, name="policy")
 if plugin_enabled(PLUGINS, "tasks"):
@@ -330,7 +329,7 @@ def fetch(
     open_gui: bool = typer.Option(True, "--open/--no-open", help="Try opening folder in GUI when not in SSH."),
     simple: bool = typer.Option(False, "--simple", help="Use beginner-friendly wording."),
 ):
-    plugins = load_plugins(Paths.resolve())
+    plugins = resolve_plugins(Paths.resolve())
     if not plugin_enabled(plugins, "fetch_drive"):
         print_cli_notice(console, title="Fetch Disabled", level="warning", message="Drive fetch plugin is disabled in config/plugins.json.", help_line="Set fetch_drive to true to enable.")
         raise SystemExit(2)
@@ -353,6 +352,8 @@ def fetch(
         target.mkdir(parents=True, exist_ok=True)
 
         print_cli_notice(console, title="Download Started", level="info", message=f"Fetching files into: {target}", help_line="This may take time for large folders.")
+        from .addons.gdrive_fetch import download_public_folder
+
         result = _run_with_spinner(console, "Downloading files from Google Drive...", lambda: download_public_folder(link, target))
 
         file_count = int(getattr(result, "downloaded_files", 0) or 0)
