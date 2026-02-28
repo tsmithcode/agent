@@ -234,6 +234,7 @@ def print_full_help(console: Console) -> None:
     table.add_row("cg inspect structure", "(none)", "-d 4", "Project tree from home path.")
     table.add_row("cg inspect workspace", "(none)", "-d (optional)", "Workspace tree with summary.")
     table.add_row("cg inspect outputs", "(none)", "-d (optional)", "Reports/logs/artifacts tree view.")
+    table.add_row("cg inspect loc", "(none)", "(none)", "Line count for codebase (excludes workspace/logs/etc).")
     table.add_row("cg policy list", "(none)", "(none)", "List policy tiers and key runtime limits.")
     table.add_row("cg policy show", "(none)", "(none)", "Show active policy and inferred tier.")
     table.add_row("cg policy use", "TIER", "--yes", "Apply max/base/cheap profile with backup.")

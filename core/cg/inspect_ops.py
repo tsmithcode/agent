@@ -16,6 +16,29 @@ from .cli_ui import COLOR_RULES
 from .paths import Paths
 
 MAX_TREE_ROWS = 300
+EXCLUDE_DIRS = {
+    ".git",
+    "__pycache__",
+    "venv",
+    "workspace",
+    "logs",
+    "memory",
+    "exports",
+    "models",
+}
+EXCLUDE_EXTS = {
+    ".md",
+    ".jsonl",
+    ".lock",
+    ".csv",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".pdf",
+    ".ipynb",
+}
 
 
 def open_for_review(path: Path) -> bool:
@@ -141,3 +164,48 @@ def extract_depth(prompt: str, default: int = 4) -> int:
         return max(1, min(10, val))
     except Exception:
         return default
+
+
+def _should_skip_path(path: Path) -> bool:
+    parts = set(path.parts)
+    if parts.intersection(EXCLUDE_DIRS):
+        return True
+    if path.suffix.lower() in EXCLUDE_EXTS:
+        return True
+    return False
+
+
+def _iter_files(paths: Paths) -> list[Path]:
+    root = paths.agent_root.resolve()
+    files: list[Path] = []
+    for p in root.rglob("*"):
+        if not p.is_file():
+            continue
+        if _should_skip_path(p):
+            continue
+        files.append(p)
+    return files
+
+
+def loc_once(console: Console) -> None:
+    paths = Paths.resolve()
+    files = _iter_files(paths)
+    total_lines = 0
+    unreadable = 0
+    for f in files:
+        try:
+            with f.open("r", encoding="utf-8", errors="ignore") as handle:
+                total_lines += sum(1 for _ in handle)
+        except Exception:
+            unreadable += 1
+
+    summary = Table(title="Lines of Code Summary", show_header=False)
+    summary.add_column("Field", no_wrap=True)
+    summary.add_column("Value", overflow="fold")
+    summary.add_row("root", str(paths.agent_root))
+    summary.add_row("files_counted", str(len(files)))
+    summary.add_row("lines_total", str(total_lines))
+    summary.add_row("unreadable_files", str(unreadable))
+    summary.add_row("excluded_dirs", ", ".join(sorted(EXCLUDE_DIRS)))
+    summary.add_row("excluded_exts", ", ".join(sorted(EXCLUDE_EXTS)))
+    console.print(summary)

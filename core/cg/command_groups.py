@@ -12,7 +12,7 @@ from typing import Any, Callable, Optional
 import typer
 
 from .eval_harness import run_core_eval, save_eval_report
-from .inspect_ops import open_for_review, open_target, outputs_once, show_folder_once, structure_once, workspace_once
+from .inspect_ops import loc_once, open_for_review, open_target, outputs_once, show_folder_once, structure_once, workspace_once
 from .paths import Paths
 from .plugins import load_plugins, plugin_enabled
 from .policy import Policy
@@ -348,5 +348,9 @@ def register_groups(
     @inspect_app.command("outputs")
     def inspect_outputs(depth: Optional[int] = typer.Option(None, "-d", min=1, max=10, help="Optional tree depth limit.")):
         outputs_once(console, depth)
+
+    @inspect_app.command("loc")
+    def inspect_loc():
+        loc_once(console)
 
     return run_snapshot_tests

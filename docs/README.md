@@ -147,6 +147,7 @@ cd /home/cg-ai/agent/core
 | `cg inspect structure` | Shows solution tree (default depth 4) | `cg inspect structure -d 4` |
 | `cg inspect workspace` | Shows workspace tree | `cg inspect workspace` |
 | `cg inspect outputs` | Shows reports/logs/artifacts trees | `cg inspect outputs` |
+| `cg inspect loc` | Counts lines of code excluding workspace/logs/caches | `cg inspect loc` |
 | `cg policy list` | Lists available policy tiers and key limits | `cg policy list` |
 | `cg policy show` | Shows active policy with inferred tier | `cg policy show` |
 | `cg policy use <tier> --yes` | Applies `cheap`, `base`, or `max` policy profile | `cg policy use cheap --yes` |

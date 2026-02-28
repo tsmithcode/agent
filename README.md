@@ -72,6 +72,7 @@ cg status --limit 200
 cg policy list
 cg policy use cheap --yes
 cg inspect workspace
+cg inspect loc
 cg dev snaps  # snapshots plugin
 cg dev metrics --format csv --limit 2000  # metrics plugin
 cg dev dashboard --live --event-limit 10000  # dashboard plugin
